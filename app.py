@@ -8,6 +8,7 @@ app.secret_key = os.environ.get('SECRET_KEY', 'black3_secret_2024_kala_teen')
 # In-memory game storage keyed by session game_id
 games = {}
 
+
 # ─── Card Constants ───────────────────────────────────────────────────────────
 SUITS = ['s', 'h', 'd', 'c']          # spades, hearts, diamonds, clubs
 RANKS = ['a', 'k', 'q', 'j', 't', '9', '8', '7', '6', '5', '4', '3']
