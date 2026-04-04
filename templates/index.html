@@ -89,7 +89,28 @@
     </div>
     <div class="top-bar-right">
       <button id="btn-toggle-log" class="btn btn-sm mobile-only">Log</button>
+      <button id="btn-rules" class="btn btn-sm btn-outline">? Rules</button>
       <button id="btn-new-game-top" class="btn btn-sm">Leave</button>
+    </div>
+  </div>
+
+  <!-- Rules modal -->
+  <div id="rules-modal" class="rules-modal hidden">
+    <div class="rules-modal-inner">
+      <button id="btn-close-rules" class="rules-close-btn">&times;</button>
+      <h3>How to Play</h3>
+      <ul>
+        <li>48 cards dealt (8 each), no 2s in the deck.</li>
+        <li>Empty seats are filled by <strong>bots</strong>.</li>
+        <li><strong>Bidding:</strong> Seat 1 opens at 170. Going clockwise, each player bids higher (steps of 10, max 270) or passes. Last player standing is the <strong>bidder</strong>.</li>
+        <li><strong>Bid winner</strong> picks a <strong>trump suit</strong> and names 2 <strong>partner cards</strong> (e.g. ♥A, ♣K). Holders are secret allies — revealed only when that card is played.</li>
+        <li><strong>8 tricks</strong> played. Must follow suit if possible; trump beats all other suits.</li>
+        <li><strong>Points:</strong> Ace = 20 &nbsp;|&nbsp; K/Q/J/10 = 10 &nbsp;|&nbsp; ♠3 = 30 &nbsp;|&nbsp; others = 0</li>
+        <li><strong>Scoring:</strong> Bidder's team needs ≥ bid pts to win.<br>
+          Win → bidder earns bid × 2, each partner earns bid.<br>
+          Lose → each opponent earns bid, bidder loses bid.
+        </li>
+      </ul>
     </div>
   </div>
 

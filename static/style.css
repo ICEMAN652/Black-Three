@@ -67,6 +67,33 @@ body {
 .rules-box li { margin-bottom: 6px; font-size: 0.88rem; line-height: 1.5; color: #ccc; }
 .black3 { color: #333; background: #fff; padding: 0 4px; border-radius: 3px; font-weight: bold; }
 
+/* ── Rules modal ──────────────────────────────────────────────── */
+.rules-modal {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.rules-modal.hidden { display: none; }
+.rules-modal-inner {
+  position: relative;
+  background: var(--dark-card, #1e2233);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  padding: 28px 28px 24px;
+  max-width: 520px; width: 100%;
+  max-height: 85vh; overflow-y: auto;
+}
+.rules-modal-inner h3 { color: var(--gold); margin-bottom: 14px; font-size: 1.1rem; }
+.rules-modal-inner ul { padding-left: 18px; }
+.rules-modal-inner li { margin-bottom: 8px; font-size: 0.88rem; line-height: 1.55; color: #ccc; }
+.rules-close-btn {
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: none; color: #aaa;
+  font-size: 1.4rem; cursor: pointer; line-height: 1;
+}
+.rules-close-btn:hover { color: #fff; }
+
 .setup-form {
   display: flex;
   flex-direction: column;

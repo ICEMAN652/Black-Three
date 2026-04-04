@@ -244,6 +244,16 @@ function renderLobby(data) {
 }
 
 // ── Top bar ────────────────────────────────────────────────────────────────
+$('btn-rules').addEventListener('click', () => {
+  $('rules-modal').classList.remove('hidden');
+});
+$('btn-close-rules').addEventListener('click', () => {
+  $('rules-modal').classList.add('hidden');
+});
+$('rules-modal').addEventListener('click', (e) => {
+  if (e.target === $('rules-modal')) $('rules-modal').classList.add('hidden');
+});
+
 $('btn-toggle-log').addEventListener('click', () => {
   const logArea = document.querySelector('.log-area');
   logArea.classList.toggle('log-hidden-mobile');
