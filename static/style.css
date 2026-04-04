@@ -211,6 +211,7 @@ body {
 .game-info { display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.88rem; }
 .game-info span { color: #ddd; }
 .game-info strong { color: var(--gold); }
+.info-room-code strong { letter-spacing: 0.12em; border: 1px solid rgba(212,165,32,0.4); border-radius: 4px; padding: 1px 5px; }
 
 .game-layout {
   display: grid;

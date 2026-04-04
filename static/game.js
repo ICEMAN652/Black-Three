@@ -336,6 +336,14 @@ function render(state) {
 }
 
 function renderTopBar(s) {
+  const hasBots = s.seat_types && Object.values(s.seat_types).some(v => v === true);
+  const rcEl = $('info-room-code');
+  if (s.room_code && hasBots) {
+    rcEl.innerHTML = `Room: <strong>${escHtml(s.room_code)}</strong>`;
+    rcEl.title = 'Share this code — open bot seats can be joined mid-game';
+  } else {
+    rcEl.innerHTML = '';
+  }
   $('info-bid').innerHTML = `Bid: <strong>${s.bid}</strong>` +
     (s.bidder_name && s.phase !== 'bidding' ? ` by <strong>${escHtml(s.bidder_name)}</strong>` : '');
   $('info-trump').innerHTML = s.trump

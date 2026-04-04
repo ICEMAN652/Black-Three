@@ -766,8 +766,29 @@ def on_join_room(data):
         emit('join_error', {'msg': 'Room not found. Check the code.'})
         return
     room = rooms[code]
+
     if room['status'] == 'playing':
-        emit('join_error', {'msg': 'Game already in progress.'})
+        # Allow joining mid-game only if a bot seat exists
+        bot_seat = next(
+            (s for s, p in sorted(room['seats'].items()) if p['is_bot']),
+            None
+        )
+        if bot_seat is None:
+            emit('join_error', {'msg': 'Game in progress and no open seats.'})
+            return
+        # Replace the bot with this human player
+        p = room['seats'][bot_seat]
+        p['name'] = name
+        p['sid'] = sid
+        p['is_bot'] = False
+        room['sid_to_seat'][sid] = bot_seat
+        sid_room[sid] = code
+        sio_join(code)
+        # Update the game state player name too
+        if room.get('gs'):
+            room['gs']['player_names'][bot_seat] = name
+            room['gs']['log'].append(f"{name} joined and took over Bot seat {bot_seat}.")
+        broadcast_game_state(code)
         return
 
     occupied = set(room['seats'].keys())
