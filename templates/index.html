@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Black Three – Kala Teen</title>
+  <title>Three of Spades – Kali Teeri</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -11,15 +11,15 @@
 <!-- ═══════════════════  SETUP SCREEN  ═══════════════════ -->
 <div id="screen-setup" class="screen active">
   <div class="setup-card">
-    <h1 class="game-title">🃏 Black Three</h1>
-    <p class="subtitle">Kala Teen – Indian Card Game (up to 6 players)</p>
+    <h1 class="game-title">🃏 Three of Spades</h1>
+    <p class="subtitle">Kali Teeri – Family Card Game (up to 6 players)</p>
     <div class="rules-box">
       <h3>How to Play</h3>
       <ul>
         <li>48 cards dealt (8 each), no 2s in the deck</li>
         <li>Empty seats are filled by <strong>bots</strong>.</li>
-        <li><strong>Bidding:</strong> Seat 1 opens at 170. Bid higher or pass.</li>
-        <li><strong>Bid winner</strong> picks a <strong>trump suit</strong> and calls 2 <strong>partner cards</strong>. Holders are secret allies.</li>
+        <li><strong>Bidding:</strong> Seat 1 opens by bidding 170. Going clockwise, each player must either bid higher (in steps of 10, max 270) or pass. The last player standing wins the contract and is the <strong>bidder</strong>.</li>
+        <li><strong>Bid winner</strong> picks a <strong>trump suit</strong> and names 2 <strong>partner cards</strong> (e.g. ♥A, ♣K). Holders of partner cards are secret allies — nobody knows who they are until those cards are played.</li>
         <li><strong>8 tricks</strong> played. Must follow suit; trump beats all.</li>
         <li><strong>Points:</strong> Ace = 20, K/Q/J/10 = 10, <span class="black3">♠3</span> = 30, others = 0</li>
         <li>Bidder's team needs ≥ bid pts. Win: bidder ×2 pts, partners × bid. Lose: opponents each earn bid.</li>
@@ -27,7 +27,7 @@
     </div>
     <div class="setup-form">
       <label for="player-name">Your Name:</label>
-      <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" value="Player" />
+      <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" />
       <div id="setup-error" class="error-msg hidden"></div>
       <div id="connect-loader" class="connect-loader">
         <div class="loader-track"><div id="loader-fill" class="loader-fill"></div></div>
@@ -41,6 +41,10 @@
         <input type="text" id="join-code-input" placeholder="Room code (e.g. ABCD)" maxlength="4"
                style="text-transform:uppercase;letter-spacing:0.15em" />
         <button id="btn-join-submit" class="btn btn-primary">Join</button>
+        <div id="join-loader" class="join-loader hidden">
+          <div class="loader-track"><div id="join-loader-fill" class="loader-fill"></div></div>
+          <p class="loader-text">Joining room…</p>
+        </div>
       </div>
     </div>
   </div>
@@ -49,7 +53,7 @@
 <!-- ═══════════════════  LOBBY SCREEN  ═══════════════════ -->
 <div id="screen-lobby" class="screen">
   <div class="lobby-card">
-    <h2>🃏 Black Three – Lobby</h2>
+    <h2>🃏 Three of Spades – Lobby</h2>
     <div class="room-code-box">
       <span class="room-code-label">Room Code:</span>
       <span id="lobby-room-code" class="room-code-value">----</span>

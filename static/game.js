@@ -41,6 +41,8 @@ function showSetupError(msg) {
 // ── Connection loader ──────────────────────────────────────────────────────
 let _loaderPct = 0;
 let _loaderTimer = null;
+let _joinLoaderPct = 0;
+let _joinLoaderTimer = null;
 
 function loaderSet(pct) {
   _loaderPct = pct;
@@ -71,6 +73,32 @@ function loaderFinish() {
   }, 500);
 }
 
+function joinLoaderStart() {
+  const jl = $('join-loader');
+  if (jl) jl.classList.remove('hidden');
+  _joinLoaderPct = 0;
+  const fill = $('join-loader-fill');
+  if (fill) fill.style.width = '0%';
+  if (_joinLoaderTimer) clearInterval(_joinLoaderTimer);
+  _joinLoaderTimer = setInterval(() => {
+    const gap = 99 - _joinLoaderPct;
+    const step = Math.max(0.5, gap * 0.08);
+    _joinLoaderPct = Math.min(99, _joinLoaderPct + step);
+    const fill = $('join-loader-fill');
+    if (fill) fill.style.width = _joinLoaderPct + '%';
+  }, 150);
+}
+
+function joinLoaderStop() {
+  if (_joinLoaderTimer) { clearInterval(_joinLoaderTimer); _joinLoaderTimer = null; }
+  const fill = $('join-loader-fill');
+  if (fill) fill.style.width = '100%';
+  setTimeout(() => {
+    const jl = $('join-loader');
+    if (jl) jl.classList.add('hidden');
+  }, 400);
+}
+
 // ── Socket.IO ──────────────────────────────────────────────────────────────
 const socket = io();
 
@@ -97,6 +125,7 @@ socket.on('disconnect', () => {
 });
 
 socket.on('lobby_update', (data) => {
+  joinLoaderStop();
   renderLobby(data);
   showScreen('lobby');
 });
@@ -109,6 +138,7 @@ socket.on('game_state', (data) => {
 });
 
 socket.on('join_error', (data) => {
+  joinLoaderStop();
   showSetupError(data.msg);
 });
 
@@ -132,6 +162,7 @@ $('btn-join-submit').addEventListener('click', () => {
   const name = $('player-name').value.trim() || 'Player';
   const code = $('join-code-input').value.trim().toUpperCase();
   if (!code) { showSetupError('Enter a room code.'); return; }
+  joinLoaderStart();
   socket.emit('join_room_req', { name, code });
 });
 
