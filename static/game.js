@@ -228,6 +228,12 @@ function renderLobby(data) {
 }
 
 // ── Top bar ────────────────────────────────────────────────────────────────
+$('btn-toggle-log').addEventListener('click', () => {
+  const logArea = document.querySelector('.log-area');
+  logArea.classList.toggle('log-hidden-mobile');
+  $('btn-toggle-log').textContent = logArea.classList.contains('log-hidden-mobile') ? 'Log' : 'Hide Log';
+});
+
 $('btn-new-game-top').addEventListener('click', () => {
   if (confirm('Leave game and go back to setup?')) {
     myRoomCode = null; mySeat = null;
@@ -337,6 +343,21 @@ function renderTopBar(s) {
     : '';
   $('info-trick').innerHTML = s.phase === 'playing'
     ? `Trick: <strong>${s.trick_num}/8</strong>` : '';
+
+  const pEl = $('info-partners');
+  if (s.partner_1 && s.partner_2 && s.phase !== 'bidding' && s.phase !== 'set_trump') {
+    const SYMI = { s:'♠', h:'♥', d:'♦', c:'♣' };
+    const RD = {a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3'};
+    const p1d = SYMI[s.partner_1[0]] + RD[s.partner_1[1]];
+    const p2d = SYMI[s.partner_2[0]] + RD[s.partner_2[1]];
+    const p1c = (s.partner_1[0]==='h'||s.partner_1[0]==='d') ? '#f88' : '#eee';
+    const p2c = (s.partner_2[0]==='h'||s.partner_2[0]==='d') ? '#f88' : '#eee';
+    const p1name = s.partner_1_player ? ` (${escHtml(s.player_names[s.partner_1_player])})` : (s.partner_1_revealed ? ' (played)' : ' (?)')  ;
+    const p2name = s.partner_2_player ? ` (${escHtml(s.player_names[s.partner_2_player])})` : (s.partner_2_revealed ? ' (played)' : ' (?)');
+    pEl.innerHTML = `Partners: <strong style="color:${p1c}">${p1d}</strong><span style="color:#888;font-size:0.8em">${p1name}</span> &amp; <strong style="color:${p2c}">${p2d}</strong><span style="color:#888;font-size:0.8em">${p2name}</span>`;
+  } else {
+    pEl.innerHTML = '';
+  }
 }
 
 function renderOpponents(s) {
@@ -575,13 +596,13 @@ function renderPartnerInfo(s) {
   const box = $('partner-info-box');
   if (s.phase === 'playing' && s.partner_1 && s.partner_2) {
     box.classList.remove('hidden');
-    const p1n = s.player_names[s.partner_1_player] || '?';
-    const p2n = s.player_names[s.partner_2_player] || '?';
     const symi = { s:'♠', h:'♥', d:'♦', c:'♣' };
     const rdisp = {a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3'};
     const p1d = symi[s.partner_1[0]] + rdisp[s.partner_1[1]];
     const p2d = symi[s.partner_2[0]] + rdisp[s.partner_2[1]];
-    box.innerHTML = `<div>Partners: ${escHtml(p1d)} (${escHtml(p1n)}) &amp; ${escHtml(p2d)} (${escHtml(p2n)})</div>`;
+    const p1n = s.partner_1_player ? escHtml(s.player_names[s.partner_1_player]) : (s.partner_1_revealed ? 'revealed' : '?');
+    const p2n = s.partner_2_player ? escHtml(s.player_names[s.partner_2_player]) : (s.partner_2_revealed ? 'revealed' : '?');
+    box.innerHTML = `<div>Partners: ${escHtml(p1d)} (${p1n}) &amp; ${escHtml(p2d)} (${p2n})</div>`;
   } else {
     box.classList.add('hidden');
   }

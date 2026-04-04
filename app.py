@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit, join_room as sio_join
 import os, random, string
 
@@ -8,6 +8,7 @@ socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', manage_s
 
 rooms = {}     # room_code -> room dict
 sid_room = {}  # socket_id -> room_code
+visit_count = 0
 
 # ─── Card Constants ───────────────────────────────────────────────────────────
 SUITS = ['s', 'h', 'd', 'c']
@@ -217,20 +218,23 @@ def broadcast_game_state(room_code):
 
 
 # ─── Game State ───────────────────────────────────────────────────────────────
-def create_game_mp(names_dict, game_scores=None):
+def create_game_mp(names_dict, game_scores=None, start_seat=1):
     deck = [s + r for s in SUITS for r in RANKS]
     random.shuffle(deck)
     hands = {i + 1: sorted(deck[i * 8:(i + 1) * 8], key=card_sort_key) for i in range(6)}
+    # bid_order: everyone else bids first, start_seat holds mandatory 170 at end
+    bid_order = [(start_seat - 1 + i) % 6 + 1 for i in range(1, 7)]
     gs = {
         'phase': 'bidding',
         'player_names': names_dict,
         'hands': hands,
         'bid': 170,
-        'last_bidder': 1,
+        'last_bidder': start_seat,
+        'start_seat': start_seat,
         'passed': {i: False for i in range(1, 7)},
         'pass_count': 0,
         'bid_pos': 0,
-        'bid_order': [2, 3, 4, 5, 6, 1],
+        'bid_order': bid_order,
         'bidding_seat': None,
         'bidder': None,
         'trump': None,
@@ -251,7 +255,9 @@ def create_game_mp(names_dict, game_scores=None):
         'log': [],
         'message': '',
     }
-    gs['log'].append(f"{names_dict[1]} opens with the mandatory bid of 170.")
+    gs['log'].append(f"{names_dict[start_seat]} opens with the mandatory bid of 170.")
+    gs['partner_1_revealed'] = False
+    gs['partner_2_revealed'] = False
     return gs
 
 
@@ -362,10 +368,15 @@ def _validate_trump_partners(gs, trump, p1, p2, bidder_seat):
 def _process_trick_auto_mp(room):
     gs = room['gs']
     human_seats = get_human_seats(room)
+    has_humans = bool(human_seats)
 
     while gs['phase'] == 'playing':
         pos = len(gs['trick_cards'])
         if pos >= 6:
+            # Show completed trick for 10s before clearing
+            if has_humans:
+                broadcast_game_state(room['code'])
+                socketio.sleep(10)
             _finish_trick(gs)
             if gs['phase'] != 'playing':
                 broadcast_game_state(room['code'])
@@ -406,11 +417,16 @@ def _process_trick_auto_mp(room):
         gs['hands'][next_player].remove(card)
         if not gs['trick_cards']:
             gs['first_suit'] = card[0]
+        if card == gs.get('partner_1'): gs['partner_1_revealed'] = True
+        if card == gs.get('partner_2'): gs['partner_2_revealed'] = True
         gs['trick_cards'].append(card)
         gs['trick_played_by'].append(next_player)
         name = gs['player_names'][next_player]
         disp = SUIT_SYMBOLS[card[0]] + RANK_DISPLAY[card[1]]
         gs['log'].append(f"  {name} plays {disp}")
+        if has_humans:
+            broadcast_game_state(room['code'])
+            socketio.sleep(0.8)
 
 
 def _finish_trick(gs):
@@ -561,6 +577,16 @@ def client_state_mp(gs, viewer_seat, room):
     # Which seats in room are bots vs humans
     seat_types = {s: p['is_bot'] for s, p in room['seats'].items()}
 
+    # Partner secrecy: only reveal partner player if viewer is bidder,
+    # viewer IS that partner, or the card has already been played
+    p1_revealed = gs.get('partner_1_revealed', False)
+    p2_revealed = gs.get('partner_2_revealed', False)
+    viewer_is_bidder = viewer_seat == gs.get('bidder')
+    p1_player = gs.get('partner_1_player')
+    p2_player = gs.get('partner_2_player')
+    p1_visible = p1_player if (viewer_is_bidder or viewer_seat == p1_player or p1_revealed) else None
+    p2_visible = p2_player if (viewer_is_bidder or viewer_seat == p2_player or p2_revealed) else None
+
     return {
         'phase': gs['phase'],
         'my_seat': viewer_seat,
@@ -581,8 +607,10 @@ def client_state_mp(gs, viewer_seat, room):
         'partner_2': gs.get('partner_2'),
         'partner_1_disp': p1_disp,
         'partner_2_disp': p2_disp,
-        'partner_1_player': gs.get('partner_1_player'),
-        'partner_2_player': gs.get('partner_2_player'),
+        'partner_1_revealed': p1_revealed,
+        'partner_2_revealed': p2_revealed,
+        'partner_1_player': p1_visible,
+        'partner_2_player': p2_visible,
         'trick_num': gs['trick_num'],
         'trick_display': trick_display,
         'current_player': current_player,
@@ -603,10 +631,23 @@ def client_state_mp(gs, viewer_seat, room):
     }
 
 
-# ─── HTTP Route ───────────────────────────────────────────────────────────────
+# ─── HTTP Routes ──────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
+    global visit_count
+    visit_count += 1
     return render_template('index.html')
+
+@app.route('/stats')
+def stats():
+    return jsonify({
+        'visits': visit_count,
+        'active_rooms': len(rooms),
+        'active_players': sum(
+            sum(1 for p in r['seats'].values() if not p['is_bot'])
+            for r in rooms.values()
+        ),
+    })
 
 
 # ─── Socket Events ────────────────────────────────────────────────────────────
@@ -852,6 +893,8 @@ def on_play_card(data):
     gs['hands'][seat].remove(card)
     if not gs['trick_cards']:
         gs['first_suit'] = card[0]
+    if card == gs.get('partner_1'): gs['partner_1_revealed'] = True
+    if card == gs.get('partner_2'): gs['partner_2_revealed'] = True
     gs['trick_cards'].append(card)
     gs['trick_played_by'].append(seat)
     name = gs['player_names'][seat]
@@ -872,7 +915,8 @@ def on_new_round(_data):
         return
     game_scores = gs['game_scores']
     names_dict = gs['player_names']
-    room['gs'] = create_game_mp(names_dict, game_scores)
+    next_seat = gs['start_seat'] % 6 + 1
+    room['gs'] = create_game_mp(names_dict, game_scores, start_seat=next_seat)
     _process_bidding_mp(room)
 
 

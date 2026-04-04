@@ -513,13 +513,17 @@ body {
 
 /* ── Utility ──────────────────────────────────────────────────── */
 .hidden { display: none !important; }
+.mobile-only { display: none; }
+
+/* ── Top bar right group ──────────────────────────────────────── */
+.top-bar-right { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
 
 /* ── Scrollbar ────────────────────────────────────────────────── */
 .game-log::-webkit-scrollbar { width: 4px; }
 .game-log::-webkit-scrollbar-track { background: transparent; }
 .game-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
 
-/* ── Responsive ───────────────────────────────────────────────── */
+/* ══════════════════  TABLET  (≤900px)  ══════════════════════════ */
 @media (max-width: 900px) {
   .game-layout {
     grid-template-columns: 1fr 1fr;
@@ -530,10 +534,98 @@ body {
   .center-area { grid-column: 1; grid-row: 2; }
 }
 
+/* ══════════════════  MOBILE  (≤600px)  ══════════════════════════ */
 @media (max-width: 600px) {
-  .game-layout { grid-template-columns: 1fr; padding: 6px; }
-  .center-area, .log-area, .opponents-area { grid-column: 1; }
-  .log-area { max-height: 150px; }
-  :root { --card-w: 46px; --card-h: 66px; }
-  .card { font-size: 0.85rem; }
+
+  /* ── Variables ── */
+  :root {
+    --card-w: 42px;
+    --card-h: 60px;
+  }
+
+  /* ── Setup card ── */
+  .setup-card { padding: 22px 18px; }
+  .game-title { font-size: 2rem; }
+  .rules-box { padding: 12px 14px; }
+  .rules-box li { font-size: 0.82rem; }
+  .setup-form input { width: 100%; max-width: 260px; }
+
+  /* ── Top bar ── */
+  .top-bar { padding: 6px 10px; gap: 4px; flex-wrap: wrap; }
+  .game-info {
+    gap: 8px;
+    font-size: 0.76rem;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .game-info span { white-space: nowrap; }
+  .mobile-only { display: inline-flex; }
+
+  /* ── Game layout: single column ── */
+  .game-layout {
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+    gap: 5px;
+  }
+
+  /* ── Opponents: compact horizontal strip ── */
+  .opponents-area { order: 1; }
+  .opponent-row { gap: 4px; justify-content: center; }
+  .opponent-row.top-row, .opponent-row.mid-row { display: flex; flex-wrap: wrap; }
+  .opponent-seat {
+    min-width: 64px;
+    max-width: 72px;
+    padding: 4px 5px;
+    border-radius: 8px;
+  }
+  .opp-cards { font-size: 0.95rem; letter-spacing: -5px; margin-bottom: 2px; }
+  .opp-label { font-size: 0.7rem; }
+  .opp-score { font-size: 0.65rem; margin-top: 1px; }
+
+  /* ── Center area ── */
+  .center-area { order: 2; }
+  .message-box { font-size: 0.85rem; padding: 7px 10px; min-height: 32px; }
+
+  /* ── Trick table ── */
+  .trick-table { padding: 6px; gap: 4px; }
+  .trick-slot { min-height: 72px; padding: 3px; }
+  .trick-slot-label { font-size: 0.62rem; }
+  .trick-card { font-size: 0.85rem; width: var(--card-w); height: var(--card-h); }
+
+  /* ── Panels ── */
+  .bid-panel, .trump-panel, .score-panel, .waiting-panel { padding: 12px 12px; }
+  .bid-buttons { gap: 8px; }
+  .bid-buttons .btn { min-width: 80px; padding: 9px 12px; }
+  .trump-row label, .partner-row label { min-width: 100px; font-size: 0.82rem; }
+  .suit-btn { padding: 5px 10px; font-size: 0.9rem; }
+  #score-table { font-size: 0.82rem; }
+
+  /* ── Log: hidden by default on mobile, shown via toggle ── */
+  .log-area { order: 3; }
+  .log-hidden-mobile { display: none; }
+  .game-log { max-height: 150px; font-size: 0.73rem; }
+
+  /* ── Player area: hand scrolls horizontally ── */
+  .player-area { padding: 8px 10px; }
+  .player-label { font-size: 0.82rem; gap: 10px; }
+  .player-hand {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: flex-start;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    gap: 3px;
+    width: 100%;
+    scrollbar-width: none;
+  }
+  .player-hand::-webkit-scrollbar { display: none; }
+  .card { flex-shrink: 0; font-size: 0.85rem; }
+  .card .card-rank { font-size: 0.78rem; }
+  .card .card-suit { font-size: 0.95rem; }
+  .card-group-spacer { width: 5px; flex-shrink: 0; }
+
+  /* ── Last trick banner ── */
+  .last-trick-banner { font-size: 0.75rem; }
 }
