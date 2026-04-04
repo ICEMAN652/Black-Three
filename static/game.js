@@ -41,8 +41,27 @@ function showSetupError(msg) {
 // ── Socket.IO ──────────────────────────────────────────────────────────────
 const socket = io();
 
+// Disable setup buttons until socket connects
+$('btn-create-room').disabled = true;
+$('btn-show-join').disabled = true;
+$('btn-join-submit').disabled = true;
+
 socket.on('connect', () => {
-  // If we were in a room and got disconnected, nothing to do automatically
+  $('btn-create-room').disabled = false;
+  $('btn-show-join').disabled = false;
+  $('btn-join-submit').disabled = false;
+  const st = $('connection-status');
+  if (st) st.textContent = '';
+});
+
+socket.on('disconnect', () => {
+  if (screens.setup.classList.contains('active')) {
+    $('btn-create-room').disabled = true;
+    $('btn-show-join').disabled = true;
+    $('btn-join-submit').disabled = true;
+    const st = $('connection-status');
+    if (st) st.textContent = 'Reconnecting…';
+  }
 });
 
 socket.on('lobby_update', (data) => {

@@ -87,6 +87,7 @@ body {
 .setup-form input:focus { outline: none; border-color: #f0c040; }
 
 /* ── Setup button row ─────────────────────────────────────────── */
+.connection-status { color: #f0c040; font-size: 0.82rem; margin: 2px 0 6px; text-align: center; min-height: 1.1em; }
 .setup-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 .btn-secondary { background: rgba(255,255,255,0.12); color: var(--white); border: 2px solid rgba(255,255,255,0.25); }
 .btn-secondary:hover { background: rgba(255,255,255,0.2); }
