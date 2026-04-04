@@ -615,6 +615,54 @@ def on_connect():
     pass
 
 
+@socketio.on('rejoin_room')
+def on_rejoin_room(data):
+    sid = request.sid
+    code = (data.get('code') or '').strip().upper()
+    my_seat = data.get('seat')
+    name = (data.get('name') or 'Player').strip()[:20] or 'Player'
+
+    if not code or code not in rooms:
+        emit('room_lost', {})
+        return
+
+    room = rooms[code]
+
+    # Find the player's seat by seat number + matching name
+    found_seat = None
+    if my_seat and my_seat in room['seats']:
+        p = room['seats'][my_seat]
+        if p.get('name') == name:
+            found_seat = my_seat
+
+    if found_seat is None:
+        emit('room_lost', {})
+        return
+
+    # Re-associate this socket with the seat
+    p = room['seats'][found_seat]
+    old_sid = p.get('sid')
+    if old_sid:
+        sid_room.pop(old_sid, None)
+        room['sid_to_seat'].pop(old_sid, None)
+
+    p['sid'] = sid
+    p['is_bot'] = False
+    room['sid_to_seat'][sid] = found_seat
+    sid_room[sid] = code
+
+    # Re-assign host if the original host is rejoining
+    if old_sid == room.get('host_sid'):
+        room['host_sid'] = sid
+
+    sio_join(code)
+
+    if room['status'] == 'lobby':
+        broadcast_lobby(code)
+    else:
+        broadcast_game_state(code)
+
+
 @socketio.on('disconnect')
 def on_disconnect():
     sid = request.sid
@@ -699,6 +747,7 @@ def on_start_game(_data):
     sid = request.sid
     room_code = sid_room.get(sid)
     if not room_code or room_code not in rooms:
+        emit('room_lost', {})
         return
     room = rooms[room_code]
     if room['host_sid'] != sid:

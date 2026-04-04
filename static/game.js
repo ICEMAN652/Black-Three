@@ -3,6 +3,9 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let gs = null;
 let selectedTrump = null;
+let myRoomCode = null;
+let mySeat = null;
+let myName = 'Player';
 
 const SUIT_COLOR = { s: 'black', h: 'red', d: 'red', c: 'black' };
 
@@ -113,6 +116,10 @@ socket.on('connect', () => {
   $('btn-show-join').disabled = false;
   $('btn-join-submit').disabled = false;
   loaderFinish();
+  // Reconnection recovery: if we were in a room, rejoin it
+  if (myRoomCode && mySeat) {
+    socket.emit('rejoin_room', { code: myRoomCode, seat: mySeat, name: myName });
+  }
 });
 
 socket.on('disconnect', () => {
@@ -126,6 +133,8 @@ socket.on('disconnect', () => {
 
 socket.on('lobby_update', (data) => {
   joinLoaderStop();
+  myRoomCode = data.room_code;
+  mySeat = data.my_seat;
   renderLobby(data);
   showScreen('lobby');
 });
@@ -133,6 +142,8 @@ socket.on('lobby_update', (data) => {
 socket.on('game_state', (data) => {
   gs = data;
   selectedTrump = null;
+  myRoomCode = data.room_code;
+  mySeat = data.my_seat;
   render(data);
   showScreen('game');
 });
@@ -142,14 +153,21 @@ socket.on('join_error', (data) => {
   showSetupError(data.msg);
 });
 
+socket.on('room_lost', () => {
+  myRoomCode = null;
+  mySeat = null;
+  showScreen('setup');
+  showSetupError('Room no longer exists. Please create or join a new room.');
+});
+
 socket.on('game_error', (data) => {
   showError(data.msg);
 });
 
 // ── Setup screen ───────────────────────────────────────────────────────────
 $('btn-create-room').addEventListener('click', () => {
-  const name = $('player-name').value.trim() || 'Player';
-  socket.emit('create_room', { name });
+  myName = $('player-name').value.trim() || 'Player';
+  socket.emit('create_room', { name: myName });
 });
 
 $('btn-show-join').addEventListener('click', () => {
@@ -159,11 +177,11 @@ $('btn-show-join').addEventListener('click', () => {
 });
 
 $('btn-join-submit').addEventListener('click', () => {
-  const name = $('player-name').value.trim() || 'Player';
+  myName = $('player-name').value.trim() || 'Player';
   const code = $('join-code-input').value.trim().toUpperCase();
   if (!code) { showSetupError('Enter a room code.'); return; }
   joinLoaderStart();
-  socket.emit('join_room_req', { name, code });
+  socket.emit('join_room_req', { name: myName, code });
 });
 
 $('join-code-input').addEventListener('keydown', e => {
@@ -180,6 +198,7 @@ $('btn-start-game').addEventListener('click', () => {
 });
 
 $('btn-leave-lobby').addEventListener('click', () => {
+  myRoomCode = null; mySeat = null;
   socket.disconnect();
   socket.connect();
   showScreen('setup');
@@ -211,6 +230,7 @@ function renderLobby(data) {
 // ── Top bar ────────────────────────────────────────────────────────────────
 $('btn-new-game-top').addEventListener('click', () => {
   if (confirm('Leave game and go back to setup?')) {
+    myRoomCode = null; mySeat = null;
     socket.disconnect();
     socket.connect();
     gs = null;
