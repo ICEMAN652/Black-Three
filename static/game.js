@@ -1,17 +1,17 @@
 'use strict';
 
-// ── State ──────────────────────────────────────────────────────
-let gs = null;   // last server state
+// ── State ──────────────────────────────────────────────────────────────────
+let gs = null;
 let selectedTrump = null;
 
 const SUIT_COLOR = { s: 'black', h: 'red', d: 'red', c: 'black' };
-const SUIT_ORDER = ['s', 'h', 'd', 'c'];
 
-// ── DOM refs ───────────────────────────────────────────────────
+// ── DOM helpers ────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
 const screens = {
   setup: $('screen-setup'),
+  lobby: $('screen-lobby'),
   game:  $('screen-game'),
 };
 
@@ -20,24 +20,9 @@ function showScreen(name) {
   screens[name].classList.add('active');
 }
 
-// ── API ────────────────────────────────────────────────────────
-async function api(path, body) {
-  const r = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await r.json();
-  if (!r.ok) {
-    showError(data.error || 'Server error');
-    return null;
-  }
-  return data;
-}
-
 function showError(msg) {
   const el = $('trump-error');
-  if (el) {
+  if (el && !el.closest('.hidden') || el) {
     el.textContent = msg;
     el.classList.remove('hidden');
     setTimeout(() => el.classList.add('hidden'), 4000);
@@ -46,35 +31,121 @@ function showError(msg) {
   }
 }
 
-// ── Start game ─────────────────────────────────────────────────
-$('btn-start').addEventListener('click', async () => {
-  const name = $('player-name').value.trim() || 'You';
-  const data = await api('/api/new_game', { player_name: name });
-  if (data) { gs = data; render(data); showScreen('game'); }
-});
-$('player-name').addEventListener('keydown', e => {
-  if (e.key === 'Enter') $('btn-start').click();
+function showSetupError(msg) {
+  const el = $('setup-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+// ── Socket.IO ──────────────────────────────────────────────────────────────
+const socket = io();
+
+socket.on('connect', () => {
+  // If we were in a room and got disconnected, nothing to do automatically
 });
 
+socket.on('lobby_update', (data) => {
+  renderLobby(data);
+  showScreen('lobby');
+});
+
+socket.on('game_state', (data) => {
+  gs = data;
+  selectedTrump = null;
+  render(data);
+  showScreen('game');
+});
+
+socket.on('join_error', (data) => {
+  showSetupError(data.msg);
+});
+
+socket.on('game_error', (data) => {
+  showError(data.msg);
+});
+
+// ── Setup screen ───────────────────────────────────────────────────────────
+$('btn-create-room').addEventListener('click', () => {
+  const name = $('player-name').value.trim() || 'Player';
+  socket.emit('create_room', { name });
+});
+
+$('btn-show-join').addEventListener('click', () => {
+  $('join-section').classList.toggle('hidden');
+  $('btn-show-join').textContent =
+    $('join-section').classList.contains('hidden') ? 'Join Room' : 'Cancel';
+});
+
+$('btn-join-submit').addEventListener('click', () => {
+  const name = $('player-name').value.trim() || 'Player';
+  const code = $('join-code-input').value.trim().toUpperCase();
+  if (!code) { showSetupError('Enter a room code.'); return; }
+  socket.emit('join_room_req', { name, code });
+});
+
+$('join-code-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('btn-join-submit').click();
+});
+
+$('player-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('btn-create-room').click();
+});
+
+// ── Lobby screen ───────────────────────────────────────────────────────────
+$('btn-start-game').addEventListener('click', () => {
+  socket.emit('start_game', {});
+});
+
+$('btn-leave-lobby').addEventListener('click', () => {
+  socket.disconnect();
+  socket.connect();
+  showScreen('setup');
+});
+
+function renderLobby(data) {
+  $('lobby-room-code').textContent = data.room_code;
+  const list = $('lobby-player-list');
+  list.innerHTML = '';
+  data.players.forEach(p => {
+    const li = document.createElement('li');
+    li.textContent = `Seat ${p.seat}: ${escHtml(p.name)}`;
+    if (p.is_bot) li.textContent += ' (Bot)';
+    list.appendChild(li);
+  });
+
+  const emptySlots = 6 - data.players.length;
+  if (emptySlots > 0) {
+    const li = document.createElement('li');
+    li.className = 'empty-slots';
+    li.textContent = `+ ${emptySlots} empty slot${emptySlots > 1 ? 's' : ''} (will be filled by bots)`;
+    list.appendChild(li);
+  }
+
+  $('btn-start-game').style.display = data.is_host ? 'inline-block' : 'none';
+  $('lobby-waiting-msg').style.display = data.is_host ? 'none' : 'block';
+}
+
+// ── Top bar ────────────────────────────────────────────────────────────────
 $('btn-new-game-top').addEventListener('click', () => {
-  if (confirm('Start a new game? Your scores will be reset.')) {
-    showScreen('setup');
+  if (confirm('Leave game and go back to setup?')) {
+    socket.disconnect();
+    socket.connect();
     gs = null;
     selectedTrump = null;
+    showScreen('setup');
   }
 });
 
-// ── Bid buttons ────────────────────────────────────────────────
-$('btn-bid-yes').addEventListener('click', async () => {
-  const data = await api('/api/action', { action: 'bid', bid_yes: true });
-  if (data) { gs = data; render(data); }
+// ── Bid buttons ────────────────────────────────────────────────────────────
+$('btn-bid-yes').addEventListener('click', () => {
+  socket.emit('bid_action', { bid_yes: true });
 });
-$('btn-bid-no').addEventListener('click', async () => {
-  const data = await api('/api/action', { action: 'bid', bid_yes: false });
-  if (data) { gs = data; render(data); }
+$('btn-bid-no').addEventListener('click', () => {
+  socket.emit('bid_action', { bid_yes: false });
 });
 
-// ── Trump suit selection ───────────────────────────────────────
+// ── Trump suit selection ───────────────────────────────────────────────────
 document.querySelectorAll('.suit-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.suit-btn').forEach(b => b.classList.remove('selected'));
@@ -117,11 +188,10 @@ function populatePartnerSelects(trump) {
   if (cur2) sel2.value = cur2;
 }
 
-// Keep partner selects in sync (prevent same selection)
 $('partner-1-select').addEventListener('change', () => populatePartnerSelects(selectedTrump));
 $('partner-2-select').addEventListener('change', () => populatePartnerSelects(selectedTrump));
 
-$('btn-set-trump').addEventListener('click', async () => {
+$('btn-set-trump').addEventListener('click', () => {
   $('trump-error').classList.add('hidden');
   const trump = selectedTrump;
   const p1 = $('partner-1-select').value;
@@ -129,29 +199,23 @@ $('btn-set-trump').addEventListener('click', async () => {
   if (!trump) return showError('Please select a trump suit.');
   if (!p1 || !p2) return showError('Please select both partner cards.');
   if (p1 === p2) return showError('Partner cards must be different.');
-  const data = await api('/api/action', { action: 'set_trump', trump, partner_1: p1, partner_2: p2 });
-  if (data) { gs = data; render(data); }
+  socket.emit('set_trump_action', { trump, partner_1: p1, partner_2: p2 });
 });
 
-// ── Next round ─────────────────────────────────────────────────
-$('btn-next-round').addEventListener('click', async () => {
+// ── Next round ─────────────────────────────────────────────────────────────
+$('btn-next-round').addEventListener('click', () => {
   selectedTrump = null;
-  const data = await api('/api/action', { action: 'new_round' });
-  if (data) { gs = data; render(data); }
+  socket.emit('new_round_action', {});
 });
 
-// ── Card click ─────────────────────────────────────────────────
+// ── Card click ─────────────────────────────────────────────────────────────
 function onCardClick(card) {
-  return async () => {
-    const data = await api('/api/action', { action: 'play_card', card });
-    if (data) { gs = data; render(data); }
-  };
+  return () => socket.emit('play_card_action', { card });
 }
 
-// ── Main render ────────────────────────────────────────────────
+// ── Main render ────────────────────────────────────────────────────────────
 function render(state) {
   gs = state;
-
   renderTopBar(state);
   renderOpponents(state);
   renderTrick(state);
@@ -164,75 +228,60 @@ function render(state) {
 }
 
 function renderTopBar(s) {
-  const bid = $('info-bid');
-  const trump = $('info-trump');
-  const trick = $('info-trick');
-
-  if (s.phase === 'bidding') {
-    bid.innerHTML = `Bid: <strong>${s.bid}</strong>`;
-    trump.innerHTML = '';
-    trick.innerHTML = '';
-  } else {
-    bid.innerHTML = `Bid: <strong>${s.bid}</strong>` +
-      (s.bidder_name ? ` by <strong>${s.bidder_name}</strong>` : '');
-    trump.innerHTML = s.trump
-      ? `Trump: <strong style="color:${SUIT_COLOR[s.trump]==='red'?'#f88':'#eee'}">${s.trump_symbol} ${s.trump_name}</strong>`
-      : '';
-    trick.innerHTML = s.phase === 'playing'
-      ? `Trick: <strong>${s.trick_num}/8</strong>` : '';
-  }
+  $('info-bid').innerHTML = `Bid: <strong>${s.bid}</strong>` +
+    (s.bidder_name && s.phase !== 'bidding' ? ` by <strong>${escHtml(s.bidder_name)}</strong>` : '');
+  $('info-trump').innerHTML = s.trump
+    ? `Trump: <strong style="color:${SUIT_COLOR[s.trump]==='red'?'#f88':'#eee'}">${s.trump_symbol} ${s.trump_name}</strong>`
+    : '';
+  $('info-trick').innerHTML = s.phase === 'playing'
+    ? `Trick: <strong>${s.trick_num}/8</strong>` : '';
 }
 
 function renderOpponents(s) {
+  const oppDisplay = s.opp_display || [2, 3, 4, 5, 6];
   const names = s.player_names || {};
-  for (let p = 2; p <= 6; p++) {
-    const name = names[p] || `Player ${p}`;
-    const score = (s.game_scores || {})[name] || 0;
-    const el = $(`seat-${p}`);
-    $(`opp-name-${p}`).textContent = name;
-    $(`opp-score-${p}`).textContent = `${score} pts`;
-    // Show how many cards remain
-    const hand = (s.hands || {})[p];
-    const cardsArea = el.querySelector('.opp-cards');
-    const count = hand ? hand.length : 8;
-    const backs = Array.from({length: Math.min(count, 5)}, () => '<span class="card-back">🂠</span>').join('');
+  const scores = s.game_scores || {};
+  const counts = s.hand_counts || {};
+
+  for (let slot = 2; slot <= 6; slot++) {
+    const seat = oppDisplay[slot - 2];
+    const name = names[seat] || `Seat ${seat}`;
+    const score = scores[name] || 0;
+    const count = counts[String(seat)] ?? 8;
+
+    $(`opp-name-${slot}`).textContent = name;
+    $(`opp-score-${slot}`).textContent = `${score} pts`;
+
+    const cardsArea = document.querySelector(`#seat-${slot} .opp-cards`);
+    const backs = Array.from({ length: Math.min(count, 5) }, () => '<span class="card-back">🂠</span>').join('');
     cardsArea.innerHTML = backs || '–';
+
+    // Store actual seat on the element for highlight lookup
+    const seatEl = $(`seat-${slot}`);
+    seatEl.dataset.actualSeat = seat;
   }
 }
 
 function renderTrick(s) {
-  // Clear all slots
-  for (let i = 1; i <= 6; i++) {
-    const slot = $(`trick-slot-${i}`);
-    slot.innerHTML = '';
-  }
-
+  for (let i = 1; i <= 6; i++) $(`trick-slot-${i}`).innerHTML = '';
   if (!s.trick_display || !s.trick_leader) return;
 
-  // Map player → slot position (1-indexed)
-  // Slot 1 = leader (trick_leader), going around
   const leader = s.trick_leader;
-  const orderMap = {};  // player_num -> slot (1-6)
-  if (leader) {
-    for (let i = 0; i < 6; i++) {
-      const pnum = ((leader - 1 + i) % 6) + 1;
-      orderMap[pnum] = i + 1;
-    }
+  const orderMap = {};
+  for (let i = 0; i < 6; i++) {
+    const pnum = ((leader - 1 + i) % 6) + 1;
+    orderMap[pnum] = i + 1;
   }
 
-  // Find winning card index among played cards
   let winIdx = -1;
   if (s.trick_display.length > 0 && s.trump) {
-    let bestCard = null;
-    let bestIdx = -1;
+    let bestCard = null, bestIdx = -1;
     const firstSuit = s.trick_display[0].suit;
-    for (let i = 0; i < s.trick_display.length; i++) {
-      const card = s.trick_display[i].card;
-      if (jsBeats(card, bestCard, s.trump, firstSuit)) {
-        bestCard = card;
-        bestIdx = i;
+    s.trick_display.forEach((entry, i) => {
+      if (jsBeats(entry.card, bestCard, s.trump, firstSuit)) {
+        bestCard = entry.card; bestIdx = i;
       }
-    }
+    });
     winIdx = bestIdx;
   }
 
@@ -240,7 +289,7 @@ function renderTrick(s) {
     const slot = orderMap[entry.player_num];
     if (!slot) return;
     const slotEl = $(`trick-slot-${slot}`);
-    const isWinning = (idx === winIdx);
+    const isWinning = idx === winIdx;
     const color = SUIT_COLOR[entry.suit] || 'black';
     slotEl.innerHTML = `
       <div class="trick-slot-label">${escHtml(entry.player_name)}</div>
@@ -248,7 +297,6 @@ function renderTrick(s) {
     `;
   });
 
-  // Show empty slot labels for positions not yet played
   if (leader) {
     for (let i = 0; i < 6; i++) {
       const pnum = ((leader - 1 + i) % 6) + 1;
@@ -256,7 +304,7 @@ function renderTrick(s) {
       const slotEl = $(`trick-slot-${slot}`);
       if (!slotEl.innerHTML) {
         const name = (s.player_names || {})[pnum] || `P${pnum}`;
-        const isCurrent = (s.current_player === pnum);
+        const isCurrent = s.current_player === pnum;
         slotEl.innerHTML = `
           <div class="trick-slot-label">${escHtml(name)}</div>
           <div class="trick-card" style="opacity:0.15;border-style:dashed;${isCurrent ? 'border-color:#ffdd55;opacity:0.4' : ''}"></div>
@@ -266,28 +314,21 @@ function renderTrick(s) {
   }
 }
 
-// JS mirror of Python beats() for client-side win detection
 function jsBeats(challenger, champion, trump, firstSuit) {
   if (!champion) return true;
-  const cT = challenger[0] === trump;
-  const pT = champion[0] === trump;
-  const RANK = 'akqjt98765 43'; // unused; use order array instead
   const RO = {a:1,k:2,q:3,j:4,t:5,9:6,8:7,7:8,6:9,5:10,4:11,3:12};
+  const cT = challenger[0] === trump, pT = champion[0] === trump;
   if (cT && !pT) return true;
   if (!cT && pT) return false;
   if (cT && pT) return RO[challenger[1]] < RO[champion[1]];
   if (challenger[0] === firstSuit && champion[0] !== firstSuit) return true;
-  if (challenger[0] === firstSuit && champion[0] === firstSuit)
-    return RO[challenger[1]] < RO[champion[1]];
+  if (challenger[0] === firstSuit && champion[0] === firstSuit) return RO[challenger[1]] < RO[champion[1]];
   return false;
 }
 
 function renderLastTrick(s) {
   const banner = $('last-trick-banner');
-  if (!s.last_trick) {
-    banner.classList.add('hidden');
-    return;
-  }
+  if (!s.last_trick) { banner.classList.add('hidden'); return; }
   banner.classList.remove('hidden');
   const lt = s.last_trick;
   const cards = lt.cards.map(c =>
@@ -299,8 +340,8 @@ function renderLastTrick(s) {
 function renderPlayerHand(s) {
   const handEl = $('player-hand');
   handEl.innerHTML = '';
-  $('player-name-label').textContent = s.player_name || 'You';
-  const score = (s.game_scores || {})[s.player_name] || 0;
+  $('player-name-label').textContent = s.my_name || 'You';
+  const score = (s.game_scores || {})[s.my_name] || 0;
   $('player-score-label').textContent = `${score} pts`;
 
   if (!s.hand || s.hand.length === 0) {
@@ -308,12 +349,13 @@ function renderPlayerHand(s) {
     return;
   }
 
-  const isPlayingPhase = (s.phase === 'playing');
-  const isMyTurn = (s.current_player === 1);
+  const isPlayingPhase = s.phase === 'playing';
+  const isMyTurn = s.is_my_play_turn;
+  const SUIT_SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
+  const RANK_D = {a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3'};
 
   let lastSuit = null;
   s.hand.forEach(item => {
-    // Add spacer between suit groups
     if (lastSuit !== null && item.card[0] !== lastSuit) {
       const spacer = document.createElement('div');
       spacer.className = 'card-group-spacer';
@@ -324,10 +366,8 @@ function renderPlayerHand(s) {
     const el = document.createElement('div');
     const suit = item.card[0];
     const rank = item.card[1];
-    const isBlack3 = (item.card === 's3');
-    const colorClass = SUIT_COLOR[suit] === 'red' ? 'red-suit' : 'black-suit';
-
-    el.className = `card ${colorClass}`;
+    const isBlack3 = item.card === 's3';
+    el.className = `card ${SUIT_COLOR[suit] === 'red' ? 'red-suit' : 'black-suit'}`;
     if (isBlack3) el.classList.add('black3-card');
 
     if (isPlayingPhase && isMyTurn) {
@@ -339,11 +379,8 @@ function renderPlayerHand(s) {
       }
     }
 
-    const SUIT_SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
-    const RANK_D = {a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3'};
     el.innerHTML = `<div class="card-rank">${RANK_D[rank]||rank}</div><div class="card-suit">${SUIT_SYM[suit]}</div>`;
-    el.title = `${RANK_D[rank]||rank} of ${suit === 's' ? 'Spades' : suit === 'h' ? 'Hearts' : suit === 'd' ? 'Diamonds' : 'Clubs'}` + (isBlack3 ? ' (30 pts!)' : '');
-
+    el.title = `${RANK_D[rank]||rank} of ${suit==='s'?'Spades':suit==='h'?'Hearts':suit==='d'?'Diamonds':'Clubs'}` + (isBlack3 ? ' (30 pts!)' : '');
     handEl.appendChild(el);
   });
 }
@@ -361,32 +398,39 @@ function renderLog(s) {
 }
 
 function renderPhasePanel(s) {
-  // Hide all panels
   $('panel-bidding').classList.add('hidden');
   $('panel-set-trump').classList.add('hidden');
   $('panel-scoring').classList.add('hidden');
+  $('panel-waiting').classList.add('hidden');
+
+  const msgEl = $('message-box');
+  msgEl.textContent = s.message || '';
 
   if (s.phase === 'bidding') {
-    $('panel-bidding').classList.remove('hidden');
-    const nextBid = s.bid + 10;
-    $('bid-amount').textContent = s.bid;
-    $('bid-next-amount').textContent = nextBid;
-    $('bid-yes-label').textContent = nextBid;
-    // Disable bid button if already at 270
-    $('btn-bid-yes').disabled = (s.bid >= 270);
-
-    // Is it actually player 1's turn?
-    const myTurn = !s.passed[1];
-    $('btn-bid-yes').style.opacity = myTurn ? '1' : '0.5';
-    $('btn-bid-no').style.opacity = myTurn ? '1' : '0.5';
-
-  } else if (s.phase === 'set_trump' && s.bidder === 1) {
-    $('panel-set-trump').classList.remove('hidden');
-    // Reset suit selection
-    if (!selectedTrump) {
-      document.querySelectorAll('.suit-btn').forEach(b => b.classList.remove('selected'));
+    if (s.is_my_bid_turn) {
+      $('panel-bidding').classList.remove('hidden');
+      const nextBid = s.bid + 10;
+      $('bid-amount').textContent = s.bid;
+      $('bid-next-amount').textContent = nextBid;
+      $('bid-yes-label').textContent = nextBid;
+      $('btn-bid-yes').disabled = s.bid >= 270;
+    } else {
+      $('panel-waiting').classList.remove('hidden');
+      const bName = s.bidding_seat ? (s.player_names[s.bidding_seat] || '...') : '...';
+      $('waiting-msg').textContent = `Waiting for ${bName} to bid…`;
     }
-    populatePartnerSelects(selectedTrump);
+
+  } else if (s.phase === 'set_trump') {
+    if (s.is_my_trump_turn) {
+      $('panel-set-trump').classList.remove('hidden');
+      if (!selectedTrump) {
+        document.querySelectorAll('.suit-btn').forEach(b => b.classList.remove('selected'));
+      }
+      populatePartnerSelects(selectedTrump);
+    } else {
+      $('panel-waiting').classList.remove('hidden');
+      $('waiting-msg').textContent = `Waiting for ${escHtml(s.bidder_name || '...')} to set trump…`;
+    }
 
   } else if (s.phase === 'scoring') {
     $('panel-scoring').classList.remove('hidden');
@@ -400,10 +444,10 @@ function renderScoringPanel(s) {
 
   const headline = $('score-headline');
   if (rr.bidder_won) {
-    headline.textContent = `🎉 ${rr.bidder_name}'s team wins!`;
+    headline.textContent = `${rr.bidder_name}'s team wins!`;
     headline.style.color = '#6eff6e';
   } else {
-    headline.textContent = `😔 ${rr.bidder_name}'s team fails!`;
+    headline.textContent = `${rr.bidder_name}'s team fails!`;
     headline.style.color = '#ff7070';
   }
 
@@ -416,11 +460,10 @@ function renderScoringPanel(s) {
 
   const tbody = $('score-tbody');
   tbody.innerHTML = '';
-  const scores = s.game_scores || {};
-  const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const sorted = Object.entries(s.game_scores || {}).sort((a, b) => b[1] - a[1]);
   sorted.forEach(([name, pts]) => {
     const tr = document.createElement('tr');
-    if (name === s.player_name) tr.className = 'winner-row';
+    if (name === s.my_name) tr.className = 'winner-row';
     tr.innerHTML = `<td>${escHtml(name)}</td><td>${pts}</td>`;
     tbody.appendChild(tr);
   });
@@ -436,23 +479,24 @@ function renderPartnerInfo(s) {
     const rdisp = {a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3'};
     const p1d = symi[s.partner_1[0]] + rdisp[s.partner_1[1]];
     const p2d = symi[s.partner_2[0]] + rdisp[s.partner_2[1]];
-    box.innerHTML = `<div id="partner-info-text">Partners: ${escHtml(p1d)} (${escHtml(p1n)}) &amp; ${escHtml(p2d)} (${escHtml(p2n)})</div>`;
+    box.innerHTML = `<div>Partners: ${escHtml(p1d)} (${escHtml(p1n)}) &amp; ${escHtml(p2d)} (${escHtml(p2n)})</div>`;
   } else {
     box.classList.add('hidden');
   }
 }
 
 function updateOpponentHighlights(s) {
-  for (let p = 2; p <= 6; p++) {
-    const el = $(`seat-${p}`);
+  for (let slot = 2; slot <= 6; slot++) {
+    const el = $(`seat-${slot}`);
+    const actualSeat = parseInt(el.dataset.actualSeat || slot);
     el.classList.remove('active-turn', 'bidder-seat', 'partner-seat');
-    if (s.current_player === p) el.classList.add('active-turn');
-    if (s.bidder === p) el.classList.add('bidder-seat');
-    if (s.partner_1_player === p || s.partner_2_player === p) el.classList.add('partner-seat');
+    if (s.current_player === actualSeat) el.classList.add('active-turn');
+    if (s.bidder === actualSeat) el.classList.add('bidder-seat');
+    if (s.partner_1_player === actualSeat || s.partner_2_player === actualSeat) el.classList.add('partner-seat');
   }
 }
 
-// ── Utility ────────────────────────────────────────────────────
+// ── Utility ────────────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')

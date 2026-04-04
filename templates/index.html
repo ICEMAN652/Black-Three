@@ -12,24 +12,57 @@
 <div id="screen-setup" class="screen active">
   <div class="setup-card">
     <h1 class="game-title">🃏 Black Three</h1>
-    <p class="subtitle">Kala Teen – Indian Card Game (6 players)</p>
+    <p class="subtitle">Kala Teen – Indian Card Game (up to 6 players)</p>
     <div class="rules-box">
       <h3>How to Play</h3>
       <ul>
         <li>48 cards dealt (8 each), no 2s in the deck</li>
-        <li>You are <strong>Player 1</strong>. Five AI opponents play against / with you.</li>
-        <li><strong>Bidding:</strong> You must open at 170. Bid higher or pass each round.</li>
-        <li><strong>Bid winner</strong> picks a <strong>trump suit</strong> and calls 2 <strong>partner cards</strong> (cards they don't hold). The holders are secret allies.</li>
-        <li><strong>8 tricks</strong> are played. Must follow suit if possible; trump beats all.</li>
+        <li>Empty seats are filled by <strong>bots</strong>.</li>
+        <li><strong>Bidding:</strong> Seat 1 opens at 170. Bid higher or pass.</li>
+        <li><strong>Bid winner</strong> picks a <strong>trump suit</strong> and calls 2 <strong>partner cards</strong>. Holders are secret allies.</li>
+        <li><strong>8 tricks</strong> played. Must follow suit; trump beats all.</li>
         <li><strong>Points:</strong> Ace = 20, K/Q/J/10 = 10, <span class="black3">♠3</span> = 30, others = 0</li>
-        <li>Bidder's team wins if they collect ≥ bid points. Bidder earns bid×2, each partner earns bid.</li>
-        <li>If bidder's team fails, the three opponents each earn bid points.</li>
+        <li>Bidder's team needs ≥ bid pts. Win: bidder ×2 pts, partners × bid. Lose: opponents each earn bid.</li>
       </ul>
     </div>
     <div class="setup-form">
       <label for="player-name">Your Name:</label>
-      <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" value="You" />
-      <button id="btn-start" class="btn btn-primary btn-lg">Start Game</button>
+      <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" value="Player" />
+      <div id="setup-error" class="error-msg hidden"></div>
+      <div class="setup-buttons">
+        <button id="btn-create-room" class="btn btn-primary btn-lg">Create Room</button>
+        <button id="btn-show-join" class="btn btn-secondary btn-lg">Join Room</button>
+      </div>
+      <div id="join-section" class="join-section hidden">
+        <input type="text" id="join-code-input" placeholder="Room code (e.g. ABCD)" maxlength="4"
+               style="text-transform:uppercase;letter-spacing:0.15em" />
+        <button id="btn-join-submit" class="btn btn-primary">Join</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════  LOBBY SCREEN  ═══════════════════ -->
+<div id="screen-lobby" class="screen">
+  <div class="lobby-card">
+    <h2>🃏 Black Three – Lobby</h2>
+    <div class="room-code-box">
+      <span class="room-code-label">Room Code:</span>
+      <span id="lobby-room-code" class="room-code-value">----</span>
+      <span class="room-code-hint">Share this with friends</span>
+    </div>
+    <div class="lobby-players">
+      <h3>Players (up to 6 — empty seats become bots)</h3>
+      <ul id="lobby-player-list"></ul>
+    </div>
+    <p id="lobby-waiting-msg" class="lobby-waiting" style="display:none">
+      Waiting for host to start the game…
+    </p>
+    <div class="lobby-buttons">
+      <button id="btn-start-game" class="btn btn-primary btn-lg" style="display:none">
+        Start Game
+      </button>
+      <button id="btn-leave-lobby" class="btn btn-danger">Leave</button>
     </div>
   </div>
 </div>
@@ -44,50 +77,49 @@
       <span id="info-trump"></span>
       <span id="info-trick"></span>
     </div>
-    <button id="btn-new-game-top" class="btn btn-sm">New Game</button>
+    <button id="btn-new-game-top" class="btn btn-sm">Leave</button>
   </div>
 
   <!-- Main layout -->
   <div class="game-layout">
 
-    <!-- Left: Opponent seats (top arc) -->
+    <!-- Left: Opponent seats -->
     <div class="opponents-area">
       <div class="opponent-row top-row">
         <div class="opponent-seat" id="seat-4">
           <div class="opp-cards"><span class="card-back">🂠</span><span class="card-back">🂠</span><span class="card-back">🂠</span></div>
-          <div class="opp-label" id="opp-name-4">Kavya</div>
+          <div class="opp-label" id="opp-name-4">Player</div>
           <div class="opp-score" id="opp-score-4">0 pts</div>
         </div>
         <div class="opponent-seat" id="seat-3">
           <div class="opp-cards"><span class="card-back">🂠</span><span class="card-back">🂠</span><span class="card-back">🂠</span></div>
-          <div class="opp-label" id="opp-name-3">Arjun</div>
+          <div class="opp-label" id="opp-name-3">Player</div>
           <div class="opp-score" id="opp-score-3">0 pts</div>
         </div>
         <div class="opponent-seat" id="seat-2">
           <div class="opp-cards"><span class="card-back">🂠</span><span class="card-back">🂠</span><span class="card-back">🂠</span></div>
-          <div class="opp-label" id="opp-name-2">Priya</div>
+          <div class="opp-label" id="opp-name-2">Player</div>
           <div class="opp-score" id="opp-score-2">0 pts</div>
         </div>
       </div>
       <div class="opponent-row mid-row">
         <div class="opponent-seat" id="seat-5">
           <div class="opp-cards"><span class="card-back">🂠</span><span class="card-back">🂠</span><span class="card-back">🂠</span></div>
-          <div class="opp-label" id="opp-name-5">Rajan</div>
+          <div class="opp-label" id="opp-name-5">Player</div>
           <div class="opp-score" id="opp-score-5">0 pts</div>
         </div>
         <div class="opponent-seat" id="seat-6">
           <div class="opp-cards"><span class="card-back">🂠</span><span class="card-back">🂠</span><span class="card-back">🂠</span></div>
-          <div class="opp-label" id="opp-name-6">Sunita</div>
+          <div class="opp-label" id="opp-name-6">Player</div>
           <div class="opp-score" id="opp-score-6">0 pts</div>
         </div>
       </div>
     </div>
 
-    <!-- Center: Trick area + message -->
+    <!-- Center: Trick area + panels -->
     <div class="center-area">
       <div id="message-box" class="message-box"></div>
 
-      <!-- Trick table -->
       <div class="trick-table" id="trick-table">
         <div class="trick-slot" id="trick-slot-1"></div>
         <div class="trick-slot" id="trick-slot-2"></div>
@@ -97,10 +129,15 @@
         <div class="trick-slot" id="trick-slot-6"></div>
       </div>
 
-      <!-- Last trick result -->
       <div id="last-trick-banner" class="last-trick-banner hidden"></div>
 
-      <!-- Phase-specific panels -->
+      <!-- Waiting panel -->
+      <div id="panel-waiting" class="phase-panel hidden">
+        <div class="waiting-panel">
+          <div class="waiting-spinner">⏳</div>
+          <p id="waiting-msg">Waiting…</p>
+        </div>
+      </div>
 
       <!-- Bidding panel -->
       <div id="panel-bidding" class="phase-panel hidden">
@@ -129,15 +166,11 @@
           </div>
           <div class="partner-row">
             <label>Partner Card 1:</label>
-            <select id="partner-1-select">
-              <option value="">-- Select Card --</option>
-            </select>
+            <select id="partner-1-select"><option value="">-- Select Card --</option></select>
           </div>
           <div class="partner-row">
             <label>Partner Card 2:</label>
-            <select id="partner-2-select">
-              <option value="">-- Select Card --</option>
-            </select>
+            <select id="partner-2-select"><option value="">-- Select Card --</option></select>
           </div>
           <div id="trump-error" class="error-msg hidden"></div>
           <button id="btn-set-trump" class="btn btn-primary">Confirm</button>
@@ -165,9 +198,7 @@
     <div class="log-area">
       <div class="log-title">Game Log</div>
       <div id="game-log" class="game-log"></div>
-      <div class="partner-info hidden" id="partner-info-box">
-        <div id="partner-info-text"></div>
-      </div>
+      <div class="partner-info hidden" id="partner-info-box"></div>
     </div>
   </div>
 
@@ -182,6 +213,7 @@
 
 </div>
 
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script src="/static/game.js"></script>
 </body>
 </html>

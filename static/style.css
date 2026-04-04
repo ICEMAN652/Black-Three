@@ -86,6 +86,89 @@ body {
 }
 .setup-form input:focus { outline: none; border-color: #f0c040; }
 
+/* ── Setup button row ─────────────────────────────────────────── */
+.setup-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn-secondary { background: rgba(255,255,255,0.12); color: var(--white); border: 2px solid rgba(255,255,255,0.25); }
+.btn-secondary:hover { background: rgba(255,255,255,0.2); }
+
+.join-section {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.join-section input {
+  width: 160px !important;
+  letter-spacing: 0.15em;
+}
+
+/* ── Lobby Screen ─────────────────────────────────────────────── */
+#screen-lobby {
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.lobby-card {
+  background: rgba(0,0,0,0.55);
+  border: 2px solid var(--gold);
+  border-radius: 16px;
+  padding: 36px 40px;
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+}
+.lobby-card h2 { color: var(--gold); font-size: 1.8rem; margin-bottom: 24px; }
+
+.room-code-box {
+  background: rgba(255,255,255,0.07);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+.room-code-label { font-size: 0.85rem; color: #aaa; display: block; margin-bottom: 6px; }
+.room-code-value {
+  font-size: 2.8rem;
+  font-weight: 900;
+  color: var(--gold);
+  letter-spacing: 0.25em;
+  display: block;
+  margin-bottom: 6px;
+}
+.room-code-hint { font-size: 0.78rem; color: #888; }
+
+.lobby-players { margin-bottom: 20px; text-align: left; }
+.lobby-players h3 { color: #ccc; font-size: 0.9rem; margin-bottom: 10px; text-align: center; }
+.lobby-players ul { list-style: none; padding: 0; }
+.lobby-players li {
+  padding: 8px 14px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+  color: #ddd;
+}
+.lobby-players li.empty-slots { color: #666; font-style: italic; background: transparent; }
+
+.lobby-waiting { color: #aaa; font-size: 0.9rem; margin-bottom: 16px; }
+
+.lobby-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+/* ── Waiting Panel ────────────────────────────────────────────── */
+.waiting-panel {
+  background: rgba(0,0,0,0.4);
+  border: 2px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  color: #aaa;
+  font-size: 0.95rem;
+}
+.waiting-spinner { font-size: 1.6rem; margin-bottom: 8px; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
 /* ── Buttons ──────────────────────────────────────────────────── */
 .btn {
   cursor: pointer;
