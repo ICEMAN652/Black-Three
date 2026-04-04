@@ -161,6 +161,13 @@ socket.on('room_lost', () => {
   showSetupError('Room no longer exists. Please create or join a new room.');
 });
 
+socket.on('kicked', () => {
+  myRoomCode = null;
+  mySeat = null;
+  showScreen('setup');
+  showSetupError('You were kicked from the room by the host.');
+});
+
 socket.on('game_error', (data) => {
   showError(data.msg);
 });
@@ -214,6 +221,13 @@ function renderLobby(data) {
     const li = document.createElement('li');
     li.textContent = `Seat ${p.seat}: ${escHtml(p.name)}`;
     if (p.is_bot) li.textContent += ' (Bot)';
+    if (data.is_host && !p.is_bot && p.seat !== data.my_seat) {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-danger btn-sm kick-btn';
+      btn.textContent = 'Kick';
+      btn.onclick = () => socket.emit('kick_player', { seat: p.seat });
+      li.appendChild(btn);
+    }
     list.appendChild(li);
   });
 
@@ -382,7 +396,19 @@ function renderOpponents(s) {
     const score = scores[name] || 0;
     const count = counts[String(seat)] ?? 8;
 
-    $(`opp-name-${slot}`).textContent = name;
+    const nameEl = $(`opp-name-${slot}`);
+    nameEl.textContent = name;
+    const existingKick = nameEl.querySelector('.kick-btn');
+    if (existingKick) existingKick.remove();
+    const isHuman = s.seat_types && s.seat_types[String(seat)] === false;
+    if (s.is_host && isHuman) {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-danger btn-sm kick-btn';
+      btn.textContent = '✕';
+      btn.title = `Kick ${name}`;
+      btn.onclick = () => socket.emit('kick_player', { seat });
+      nameEl.appendChild(btn);
+    }
     $(`opp-score-${slot}`).textContent = `${score} pts`;
 
     const cardsArea = document.querySelector(`#seat-${slot} .opp-cards`);

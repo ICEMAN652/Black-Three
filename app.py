@@ -581,16 +581,19 @@ def client_state_mp(gs, viewer_seat, room):
     # viewer IS that partner, or the card has already been played
     p1_revealed = gs.get('partner_1_revealed', False)
     p2_revealed = gs.get('partner_2_revealed', False)
-    viewer_is_bidder = viewer_seat == gs.get('bidder')
     p1_player = gs.get('partner_1_player')
     p2_player = gs.get('partner_2_player')
-    p1_visible = p1_player if (viewer_is_bidder or viewer_seat == p1_player or p1_revealed) else None
-    p2_visible = p2_player if (viewer_is_bidder or viewer_seat == p2_player or p2_revealed) else None
+    p1_visible = p1_player if (viewer_seat == p1_player or p1_revealed) else None
+    p2_visible = p2_player if (viewer_seat == p2_player or p2_revealed) else None
+
+    viewer_sid = room['seats'][viewer_seat].get('sid')
+    is_host = viewer_sid == room.get('host_sid')
 
     return {
         'phase': gs['phase'],
         'my_seat': viewer_seat,
         'my_name': gs['player_names'].get(viewer_seat),
+        'is_host': is_host,
         'player_names': {str(k): v for k, v in gs['player_names'].items()},
         'seat_types': {str(k): v for k, v in seat_types.items()},
         'hand': hand_display,
@@ -721,7 +724,11 @@ def on_disconnect():
     if room.get('gs') and room['status'] == 'playing':
         gs = room['gs']
         p['is_bot'] = True
-        gs['log'].append(f"{p['name']} disconnected (bot takes over).")
+        old_name = p['name']
+        bot_name = f"Bot {seat}"
+        p['name'] = bot_name
+        gs['player_names'][seat] = bot_name
+        gs['log'].append(f"{old_name} disconnected (bot takes over).")
         _process_trick_auto_mp(room)
     else:
         del room['seats'][seat]
@@ -736,6 +743,46 @@ def on_disconnect():
             broadcast_lobby(room_code)
         else:
             del rooms[room_code]
+
+
+@socketio.on('kick_player')
+def on_kick_player(data):
+    sid = request.sid
+    room_code = sid_room.get(sid)
+    if not room_code or room_code not in rooms:
+        return
+    room = rooms[room_code]
+    if room['host_sid'] != sid:
+        return
+    target_seat = data.get('seat')
+    if not target_seat or target_seat not in room['seats']:
+        return
+    p = room['seats'][target_seat]
+    if p.get('is_bot'):
+        return
+    host_seat = room['sid_to_seat'].get(sid)
+    if host_seat == target_seat:
+        return
+
+    target_sid = p.get('sid')
+    if target_sid:
+        socketio.emit('kicked', {}, to=target_sid)
+        sid_room.pop(target_sid, None)
+        room['sid_to_seat'].pop(target_sid, None)
+
+    if room.get('gs') and room['status'] == 'playing':
+        gs = room['gs']
+        p['is_bot'] = True
+        old_name = p['name']
+        bot_name = f"Bot {target_seat}"
+        p['name'] = bot_name
+        gs['player_names'][target_seat] = bot_name
+        gs['log'].append(f"{old_name} was kicked (bot takes over).")
+        broadcast_game_state(room_code)
+        _process_trick_auto_mp(room)
+    else:
+        del room['seats'][target_seat]
+        broadcast_lobby(room_code)
 
 
 @socketio.on('create_room')
