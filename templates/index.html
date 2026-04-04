@@ -29,7 +29,10 @@
       <label for="player-name">Your Name:</label>
       <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" value="Player" />
       <div id="setup-error" class="error-msg hidden"></div>
-      <p id="connection-status" class="connection-status">Connecting to server…</p>
+      <div id="connect-loader" class="connect-loader">
+        <div class="loader-track"><div id="loader-fill" class="loader-fill"></div></div>
+        <p id="loader-text" class="loader-text">Connecting to server…</p>
+      </div>
       <div class="setup-buttons">
         <button id="btn-create-room" class="btn btn-primary btn-lg">Create Room</button>
         <button id="btn-show-join" class="btn btn-secondary btn-lg">Join Room</button>

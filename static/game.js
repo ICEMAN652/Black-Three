@@ -38,20 +38,53 @@ function showSetupError(msg) {
   setTimeout(() => el.classList.add('hidden'), 4000);
 }
 
+// ── Connection loader ──────────────────────────────────────────────────────
+let _loaderPct = 0;
+let _loaderTimer = null;
+
+function loaderSet(pct) {
+  _loaderPct = pct;
+  const fill = $('loader-fill');
+  if (fill) fill.style.width = pct + '%';
+}
+
+function loaderStart(msg) {
+  const loader = $('connect-loader');
+  const text   = $('loader-text');
+  if (loader) loader.style.display = '';
+  if (text)   text.textContent = msg || 'Connecting to server…';
+  loaderSet(0);
+  if (_loaderTimer) clearInterval(_loaderTimer);
+  _loaderTimer = setInterval(() => {
+    const gap = 99 - _loaderPct;
+    const step = Math.max(0.4, gap * 0.06);
+    loaderSet(Math.min(99, _loaderPct + step));
+  }, 180);
+}
+
+function loaderFinish() {
+  if (_loaderTimer) { clearInterval(_loaderTimer); _loaderTimer = null; }
+  loaderSet(100);
+  setTimeout(() => {
+    const loader = $('connect-loader');
+    if (loader) loader.style.display = 'none';
+  }, 500);
+}
+
 // ── Socket.IO ──────────────────────────────────────────────────────────────
 const socket = io();
 
-// Disable setup buttons until socket connects
+// Disable setup buttons and start loader immediately
 $('btn-create-room').disabled = true;
 $('btn-show-join').disabled = true;
 $('btn-join-submit').disabled = true;
+loaderStart();
 
 socket.on('connect', () => {
   $('btn-create-room').disabled = false;
   $('btn-show-join').disabled = false;
   $('btn-join-submit').disabled = false;
-  const st = $('connection-status');
-  if (st) st.textContent = '';
+  loaderFinish();
 });
 
 socket.on('disconnect', () => {
@@ -59,8 +92,7 @@ socket.on('disconnect', () => {
     $('btn-create-room').disabled = true;
     $('btn-show-join').disabled = true;
     $('btn-join-submit').disabled = true;
-    const st = $('connection-status');
-    if (st) st.textContent = 'Reconnecting…';
+    loaderStart('Reconnecting…');
   }
 });
 

@@ -87,7 +87,10 @@ body {
 .setup-form input:focus { outline: none; border-color: #f0c040; }
 
 /* ── Setup button row ─────────────────────────────────────────── */
-.connection-status { color: #f0c040; font-size: 0.82rem; margin: 2px 0 6px; text-align: center; min-height: 1.1em; }
+.connect-loader { width: 100%; margin: 6px 0 8px; }
+.loader-track { width: 100%; height: 7px; background: rgba(255,255,255,0.12); border-radius: 4px; overflow: hidden; }
+.loader-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #b8860b, #f0c040, #ffe97a); border-radius: 4px; transition: width 0.25s ease-out; }
+.loader-text { color: #f0c040; font-size: 0.8rem; margin: 5px 0 0; text-align: center; }
 .setup-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 .btn-secondary { background: rgba(255,255,255,0.12); color: var(--white); border: 2px solid rgba(255,255,255,0.25); }
 .btn-secondary:hover { background: rgba(255,255,255,0.2); }
