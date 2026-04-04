@@ -767,6 +767,11 @@ def on_join_room(data):
         return
     room = rooms[code]
 
+    # Prevent duplicate joins from the same socket
+    if sid in room['sid_to_seat']:
+        broadcast_lobby(code)
+        return
+
     if room['status'] == 'playing':
         # Allow joining mid-game only if a bot seat exists
         bot_seat = next(

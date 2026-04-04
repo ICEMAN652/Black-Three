@@ -150,6 +150,7 @@ socket.on('game_state', (data) => {
 
 socket.on('join_error', (data) => {
   joinLoaderStop();
+  $('btn-join-submit').disabled = false;
   showSetupError(data.msg);
 });
 
@@ -180,6 +181,7 @@ $('btn-join-submit').addEventListener('click', () => {
   myName = $('player-name').value.trim() || 'Player';
   const code = $('join-code-input').value.trim().toUpperCase();
   if (!code) { showSetupError('Enter a room code.'); return; }
+  $('btn-join-submit').disabled = true;
   joinLoaderStart();
   socket.emit('join_room_req', { name: myName, code });
 });
