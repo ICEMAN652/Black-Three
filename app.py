@@ -117,66 +117,222 @@ def ai_choose_partners(hand, trump):
     return chosen[0], chosen[1]
 
 
+# ─── AI Helpers ───────────────────────────────────────────────────────────────
+def _low(cards):
+    """Lowest-ranked card (highest RANK_ORDER value = worst rank)."""
+    return max(cards, key=lambda c: RANK_ORDER[c[1]])
+
+
+def _high(cards):
+    """Highest-ranked card (lowest RANK_ORDER value = best rank)."""
+    return min(cards, key=lambda c: RANK_ORDER[c[1]])
+
+
+def _ace_gone(all_played, suit):
+    return (suit + 'a') in all_played
+
+
+def _trumps_gone(all_played, trump):
+    return sum(1 for c in all_played if c[0] == trump)
+
+
+def _throwaway(hand, trump):
+    """Safest discard: zero-point non-trump > any non-trump > lowest trump."""
+    non_trump = [c for c in hand if c[0] != trump]
+    pool = non_trump if non_trump else list(hand)
+    zero = [c for c in pool if card_points(c) == 0]
+    return _low(zero if zero else pool)
+
+
+def _best_point_card(hand, all_played, trump):
+    """Best safe lead: non-trump ace, then king if ace of that suit is gone."""
+    for s in SUITS:
+        if s != trump and (s + 'a') in hand:
+            return s + 'a'
+    for s in SUITS:
+        if s != trump and (s + 'k') in hand and _ace_gone(all_played, s):
+            return s + 'k'
+    return None
+
+
 def ai_play_card(player_num, hand, played_order, played_cards, trump,
-                 bidder_num, p1_num, p2_num, first_suit, trick_num):
-    is_bidder_team = player_num in (bidder_num, p1_num, p2_num)
+                 bidder_num, p1_num, p2_num, first_suit, trick_num,
+                 all_played, partner_1_card, partner_2_card):
+    is_bidder = player_num == bidder_num
+    is_partner = player_num in (p1_num, p2_num)
+    is_bidder_team = is_bidder or is_partner
     trump_in_hand = [c for c in hand if c[0] == trump]
+
     if first_suit is None:
-        return _ai_lead(hand, trump_in_hand, is_bidder_team, player_num, bidder_num, trick_num)
-    return _ai_follow(hand, played_order, played_cards, trump, first_suit,
-                      trump_in_hand, is_bidder_team, player_num, bidder_num, p1_num, p2_num)
+        return _ai_lead(player_num, hand, trump, trump_in_hand, is_bidder,
+                        is_partner, p1_num, trick_num,
+                        all_played, partner_1_card, partner_2_card)
+    return _ai_follow(player_num, hand, played_order, played_cards, trump,
+                      first_suit, trump_in_hand, is_bidder, is_partner,
+                      is_bidder_team, bidder_num, p1_num, p2_num, trick_num,
+                      partner_1_card, partner_2_card)
 
 
-def _ai_lead(hand, trump_in_hand, is_bidder_team, player_num, bidder_num, trick_num):
-    if player_num == bidder_num:
-        if trick_num <= 3 and trump_in_hand:
-            return min(trump_in_hand, key=lambda c: RANK_ORDER[c[1]])
-        return sorted(hand, key=lambda c: (-card_points(c), RANK_ORDER[c[1]]))[0]
-    elif is_bidder_team:
-        if trump_in_hand:
-            return min(trump_in_hand, key=lambda c: RANK_ORDER[c[1]])
-        return sorted(hand, key=lambda c: (-card_points(c), RANK_ORDER[c[1]]))[0]
-    else:
-        return sorted(hand, key=lambda c: (card_points(c), -RANK_ORDER[c[1]]))[0]
+def _ai_lead(player_num, hand, trump, trump_in_hand, is_bidder, is_partner,
+             p1_num, trick_num, all_played, p1c, p2c):
+    if is_bidder:
+        return _bidder_lead(hand, trump, trump_in_hand, trick_num, all_played, p1c, p2c)
+    if is_partner:
+        other_pc = p2c if player_num == p1_num else p1c
+        return _partner_lead(hand, trump, trump_in_hand, trick_num, all_played, other_pc)
+    return _opponent_lead(hand, trump, all_played)
 
 
-def _ai_follow(hand, played_order, played_cards, trump, first_suit,
-               trump_in_hand, is_bidder_team, player_num, bidder_num, p1_num, p2_num):
+def _bidder_lead(hand, trump, trump_in_hand, trick_num, all_played, p1c, p2c):
+    has_ta = (trump + 'a') in hand
+    has_tk = (trump + 'k') in hand
+
+    if trump_in_hand:
+        if trick_num == 1:
+            if has_ta and has_tk:
+                return trump + 'a'
+            if not has_ta:
+                # Partner holds trump ace — lead a sub-ace/king trump to draw it
+                lower = [c for c in trump_in_hand if c[1] not in ('a', 'k')]
+                return _low(lower) if lower else _low([c for c in trump_in_hand if c[1] != 'a'])
+            # Has ace but not king — lead low trump to draw partner's king
+            lower = [c for c in trump_in_hand if c[1] not in ('a', 'k')]
+            return _low(lower) if lower else _low([c for c in trump_in_hand if c[1] != 'k'])
+
+        if trick_num == 2:
+            if has_tk:
+                return trump + 'k'
+            if has_ta:
+                return trump + 'a'
+            return _high(trump_in_hand)
+
+        if trick_num == 3:
+            gone = _trumps_gone(all_played, trump)
+            if gone + len(trump_in_hand) < 12:
+                return _high(trump_in_hand)
+            # All trump accounted for — fall through to point play
+
+    # Tricks 4-8 (or after clearing): point maximisation
+    high = _best_point_card(hand, all_played, trump)
+    if high:
+        return high
+
+    # Lead low of a partner-card suit to signal partner to play their card
+    for pc in (p1c, p2c):
+        if pc:
+            suit_low = [c for c in hand if c[0] == pc[0] and c[0] != trump and c != pc]
+            if suit_low:
+                return _low(suit_low)
+
+    if trick_num >= 7 and trump_in_hand:
+        return _high(trump_in_hand)
+
+    return _throwaway(hand, trump)
+
+
+def _partner_lead(hand, trump, trump_in_hand, trick_num, all_played, other_pc):
+    # Tricks 1-3: keep clearing trump
+    if trick_num <= 3 and trump_in_hand:
+        if trick_num == 2:
+            # Lead highest non-ace trump to set up bidder's king/ace
+            non_ace = [c for c in trump_in_hand if c[1] != 'a']
+            return _high(non_ace) if non_ace else _high(trump_in_hand)
+        return _high(trump_in_hand)
+
+    # No trump or tricks 4+: point play, then draw other partner's card
+    high = _best_point_card(hand, all_played, trump)
+    if high:
+        return high
+    if other_pc:
+        suit_low = [c for c in hand if c[0] == other_pc[0] and c[0] != trump and c != other_pc]
+        if suit_low:
+            return _low(suit_low)
+    return _throwaway(hand, trump)
+
+
+def _opponent_lead(hand, trump, all_played):
+    high = _best_point_card(hand, all_played, trump)
+    if high:
+        return high
+    return _throwaway(hand, trump)
+
+
+def _ai_follow(player_num, hand, played_order, played_cards, trump,
+               first_suit, trump_in_hand, is_bidder, is_partner,
+               is_bidder_team, bidder_num, p1_num, p2_num, trick_num,
+               p1c, p2c):
     my_valid = valid_cards(hand, first_suit)
-    same_suit_valid = [c for c in my_valid if c[0] == first_suit]
+    same_suit = [c for c in my_valid if c[0] == first_suit]
 
-    if played_cards:
-        win_idx = trick_winner_idx(played_cards, trump, first_suit)
-        cur_winner_num = played_order[win_idx]
-        current_best = played_cards[win_idx]
-        winner_is_bidder_team = cur_winner_num in (bidder_num, p1_num, p2_num)
-    else:
-        cur_winner_num = None
-        current_best = None
-        winner_is_bidder_team = False
+    win_idx = trick_winner_idx(played_cards, trump, first_suit)
+    cur_winner = played_order[win_idx]
+    cur_best = played_cards[win_idx]
+    winner_is_team = cur_winner in (bidder_num, p1_num, p2_num)
 
-    if same_suit_valid:
-        if is_bidder_team:
-            if winner_is_bidder_team and cur_winner_num != player_num:
-                return max(same_suit_valid, key=lambda c: RANK_ORDER[c[1]])
-            can_beat = [c for c in same_suit_valid if beats(c, current_best, trump, first_suit)]
-            if can_beat:
-                return min(can_beat, key=lambda c: RANK_ORDER[c[1]])
-            return max(same_suit_valid, key=lambda c: RANK_ORDER[c[1]])
+    # ── Trump clearing tricks 1-3 ─────────────────────────────────────────────
+    if first_suit == trump and trick_num <= 3:
+        if same_suit:
+            # Bidder following: play king then ace to win the trick
+            if is_bidder and trick_num >= 2:
+                if (trump + 'k') in hand:
+                    return trump + 'k'
+                if (trump + 'a') in hand:
+                    return trump + 'a'
+
+            # Partner following: play partner card at the right moment
+            if is_partner:
+                my_pc = p1c if player_num == p1_num else p2c
+                if my_pc and my_pc in hand and my_pc[0] == trump:
+                    bidder_has_ta = (trump + 'a') not in (p1c, p2c)
+                    bidder_has_tk = (trump + 'k') not in (p1c, p2c)
+                    if my_pc == trump + 'a' and not bidder_has_ta:
+                        # Play ace if bidder has king (case 2), or trick 2+ (case 4)
+                        if bidder_has_tk or trick_num >= 2:
+                            return trump + 'a'
+                    if my_pc == trump + 'k' and not bidder_has_tk:
+                        return trump + 'k'   # cases 3 & 4: draw king now
+
+            return _low(same_suit)
         else:
-            if not winner_is_bidder_team:
-                return max(same_suit_valid, key=lambda c: RANK_ORDER[c[1]])
-            can_beat = [c for c in same_suit_valid if beats(c, current_best, trump, first_suit)]
+            # Can't follow trump — ruff only if team isn't winning
+            if is_bidder_team and not winner_is_team:
+                can_beat = [c for c in trump_in_hand if beats(c, cur_best, trump, first_suit)]
+                if can_beat:
+                    return _low(can_beat)
+            return _throwaway(hand, trump)
+
+    # ── All other tricks ──────────────────────────────────────────────────────
+    pts_in_trick = sum(card_points(c) for c in played_cards)
+
+    if same_suit:
+        if is_bidder_team:
+            if winner_is_team and cur_winner != player_num:
+                return _low(same_suit)
+            can_beat = [c for c in same_suit if beats(c, cur_best, trump, first_suit)]
             if can_beat:
-                return min(can_beat, key=lambda c: RANK_ORDER[c[1]])
-            return max(same_suit_valid, key=lambda c: RANK_ORDER[c[1]])
+                return _low(can_beat)
+            return _low(same_suit)
+        else:
+            if not winner_is_team:
+                return _high(same_suit)
+            can_beat = [c for c in same_suit if beats(c, cur_best, trump, first_suit)]
+            if can_beat:
+                return _low(can_beat)
+            return _low(same_suit)
     else:
         if is_bidder_team:
-            if trump_in_hand and not winner_is_bidder_team:
-                return max(trump_in_hand, key=lambda c: RANK_ORDER[c[1]])
-            return sorted(my_valid, key=lambda c: (card_points(c), -RANK_ORDER[c[1]]))[0]
+            if not winner_is_team:
+                can_beat = [c for c in trump_in_hand if beats(c, cur_best, trump, first_suit)]
+                if can_beat:
+                    return _low(can_beat)
+            return _throwaway(hand, trump)
         else:
-            return sorted(my_valid, key=lambda c: (card_points(c), -RANK_ORDER[c[1]]))[0]
+            # Opponent: ruff if trick is valuable and team is winning it
+            if winner_is_team and pts_in_trick >= 20:
+                can_beat = [c for c in trump_in_hand if beats(c, cur_best, trump, first_suit)]
+                if can_beat:
+                    return _low(can_beat)
+            return _throwaway(hand, trump)
 
 
 # ─── Room Management ──────────────────────────────────────────────────────────
@@ -373,10 +529,10 @@ def _process_trick_auto_mp(room):
     while gs['phase'] == 'playing':
         pos = len(gs['trick_cards'])
         if pos >= 6:
-            # Show completed trick for 10s before clearing
+            # Show completed trick for 5s before clearing
             if has_humans:
                 broadcast_game_state(room['code'])
-                socketio.sleep(10)
+                socketio.sleep(5)
             _finish_trick(gs)
             if gs['phase'] != 'playing':
                 broadcast_game_state(room['code'])
@@ -413,6 +569,9 @@ def _process_trick_auto_mp(room):
             p2_num=gs['partner_2_player'],
             first_suit=gs['first_suit'],
             trick_num=gs['trick_num'],
+            all_played=[c for cards in gs['tricks_won'].values() for c in cards],
+            partner_1_card=gs.get('partner_1'),
+            partner_2_card=gs.get('partner_2'),
         )
         gs['hands'][next_player].remove(card)
         if not gs['trick_cards']:
@@ -426,7 +585,7 @@ def _process_trick_auto_mp(room):
         gs['log'].append(f"  {name} plays {disp}")
         if has_humans:
             broadcast_game_state(room['code'])
-            socketio.sleep(0.8)
+            socketio.sleep(0.5)
 
 
 def _finish_trick(gs):
