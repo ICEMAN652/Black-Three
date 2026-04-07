@@ -411,7 +411,7 @@ def create_game_mp(names_dict, game_scores=None, start_seat=1):
         'log': [],
         'message': '',
     }
-    gs['log'].append(f"{names_dict[start_seat]} opens with the mandatory bid of 170.")
+    gs['opening_done'] = False
     gs['partner_1_revealed'] = False
     gs['partner_2_revealed'] = False
     return gs
@@ -422,6 +422,27 @@ def _process_bidding_mp(room):
     gs = room['gs']
     human_seats = get_human_seats(room)
     order = gs['bid_order']
+
+    # First call: give the mandatory-bid holder a chance to jump to 270 immediately
+    if not gs.get('opening_done', False):
+        gs['opening_done'] = True
+        start = gs['start_seat']
+        name = gs['player_names'][start]
+        if start in human_seats:
+            gs['bidding_seat'] = start
+            gs['mandatory_opening'] = True
+            gs['message'] = "You hold the mandatory 170. Open at 170 or jump to 270 now?"
+            broadcast_game_state(room['code'])
+            return
+        else:
+            # Bot: jump to 270 if strong enough, otherwise log mandatory open and continue
+            if ai_max_bid(gs['hands'][start]) >= 270:
+                gs['bid'] = 270
+                gs['last_bidder'] = start
+                gs['log'].append(f"{name} bids 270!")
+                _finish_bidding_mp(room)
+                return
+            gs['log'].append(f"{name} opens with the mandatory bid of 170.")
 
     while gs['pass_count'] < 5:
         pos = gs['bid_pos'] % len(order)
@@ -473,16 +494,6 @@ def _finish_bidding_mp(room):
     gs = room['gs']
     gs['bidding_seat'] = None
     gs['bidder'] = gs['last_bidder']
-
-    # If the mandatory 170 holder wins and is human, give them the choice to go for 270
-    if (gs['bidder'] == gs['start_seat'] and gs['bid'] == 170
-            and gs['bidder'] in get_human_seats(room)):
-        gs['bidding_seat'] = gs['bidder']
-        gs['mandatory_final_bid'] = True
-        gs['message'] = "Everyone passed! Accept 170 or go for 270?"
-        broadcast_game_state(room['code'])
-        return
-
     bidder_name = gs['player_names'][gs['bidder']]
     gs['log'].append(f"─── {bidder_name} wins the bid at {gs['bid']}! ───")
 
@@ -781,7 +792,7 @@ def client_state_mp(gs, viewer_seat, room):
         'bidder_name': gs['player_names'].get(gs['bidder']) if gs['bidder'] else None,
         'bidding_seat': gs.get('bidding_seat'),
         'is_my_bid_turn': gs.get('bidding_seat') == viewer_seat and gs['phase'] == 'bidding',
-        'mandatory_final_bid': gs.get('mandatory_final_bid', False),
+        'mandatory_opening': gs.get('mandatory_opening', False),
         'is_my_trump_turn': gs.get('bidder') == viewer_seat and gs['phase'] == 'set_trump',
         'trump': gs.get('trump'),
         'trump_name': SUIT_NAMES.get(gs['trump']) if gs.get('trump') else None,
@@ -1081,30 +1092,19 @@ def on_bid_action(data):
         emit('game_error', {'msg': 'Not your turn to bid.'})
         return
 
-    # Handle mandatory bidder's final choice (accept 170 or jump to 270)
-    if gs.get('mandatory_final_bid'):
-        if seat != gs.get('bidding_seat'):
-            emit('game_error', {'msg': 'Not your turn.'})
-            return
-        gs.pop('mandatory_final_bid', None)
+    # Handle the mandatory opening choice (open at 170 and let others bid, or jump to 270 now)
+    if gs.get('mandatory_opening'):
+        gs.pop('mandatory_opening', None)
         gs['bidding_seat'] = None
         name = gs['player_names'][seat]
         if data.get('jump_to_270', False):
             gs['bid'] = 270
+            gs['last_bidder'] = seat
             gs['log'].append(f"{name} bids 270!")
+            _finish_bidding_mp(room)
         else:
-            gs['log'].append(f"{name} accepts the mandatory 170.")
-        bidder_name = gs['player_names'][gs['bidder']]
-        gs['log'].append(f"─── {bidder_name} wins the bid at {gs['bid']}! ───")
-        if gs['bidder'] in get_human_seats(room):
-            gs['phase'] = 'set_trump'
-            gs['message'] = f"{bidder_name}, choose trump suit and partner cards."
-            broadcast_game_state(room['code'])
-        else:
-            gs['phase'] = 'set_trump'
-            trump = ai_choose_trump(gs['hands'][gs['bidder']])
-            p1, p2 = ai_choose_partners(gs['hands'][gs['bidder']], trump)
-            _apply_trump_partners_mp(room, trump, p1, p2, auto=True)
+            gs['log'].append(f"{name} opens with the mandatory bid of 170.")
+            _process_bidding_mp(room)
         return
 
     bid_yes = data.get('bid_yes', False)

@@ -627,7 +627,8 @@ function renderLog(s) {
     div.className = 'log-line' +
       (line.startsWith('─') ? ' separator' : '') +
       (isTrick ? ' trick-line' : '');
-    div.innerHTML = isTrick ? escHtml(line) : colorizeCards(line);
+    // Trick lines: .trick-line CSS makes base text blue; log-red/log-white spans override card symbols
+    div.innerHTML = colorizeCards(line);
     logEl.appendChild(div);
   });
   logEl.scrollTop = 0;
@@ -648,11 +649,11 @@ function renderPhasePanel(s) {
       $('panel-bidding').classList.remove('hidden');
       $('bid-amount').textContent = s.bid;
 
-      if (s.mandatory_final_bid) {
+      if (s.mandatory_opening) {
         document.querySelector('.bid-next').innerHTML =
-          'Accept <strong>170</strong> or jump to <strong>270</strong>?';
+          'Open at <strong>170</strong> (others can bid), or go <strong>270</strong> now?';
         $('btn-bid-yes').style.display = 'none';
-        $('btn-bid-no').textContent = 'Accept 170';
+        $('btn-bid-no').textContent = 'Open at 170';
         $('btn-bid-270').style.display = '';
       } else {
         const nextBid = s.bid + 10;
