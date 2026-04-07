@@ -5,6 +5,7 @@ let gs = null;
 let selectedTrump = null;
 let selectedP1 = null;
 let selectedP2 = null;
+let prevPhase = null;
 let myRoomCode = null;
 let mySeat = null;
 let myName = 'Player';
@@ -359,8 +360,30 @@ function onCardClick(card) {
   return () => socket.emit('play_card_action', { card });
 }
 
+// ── Game-start popup ────────────────────────────────────────────────────────
+function showGameStartModal(s) {
+  const SYMI = { s:'♠', h:'♥', d:'♦', c:'♣' };
+  const RD = {a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3'};
+  const suitCls = su => (su==='h'||su==='d') ? 'gs-red' : 'gs-white';
+  const cardHtml = c => `<span class="${suitCls(c[0])}">${SYMI[c[0]]}${RD[c[1]]}</span>`;
+  const trumpCls = suitCls(s.trump);
+  const body = $('game-start-body');
+  body.innerHTML = `
+    <div class="gs-trump">Trump: <span class="${trumpCls}">${s.trump_symbol} ${s.trump_name}</span></div>
+    <div class="gs-partners">Partner cards: ${cardHtml(s.partner_1)} &amp; ${cardHtml(s.partner_2)}</div>
+    <div style="margin-top:8px;color:#aaa;font-size:0.85rem">${escHtml(s.bidder_name)} leads the first trick.</div>
+  `;
+  $('game-start-modal').classList.remove('hidden');
+}
+
+$('btn-close-game-start').addEventListener('click', () => {
+  $('game-start-modal').classList.add('hidden');
+});
+
 // ── Main render ────────────────────────────────────────────────────────────
 function render(state) {
+  const wasSetTrump = prevPhase === 'set_trump';
+  prevPhase = state.phase;
   gs = state;
   renderTopBar(state);
   renderOpponents(state);
@@ -371,6 +394,9 @@ function render(state) {
   renderPhasePanel(state);
   renderPartnerInfo(state);
   updateOpponentHighlights(state);
+  if (wasSetTrump && state.phase === 'playing') {
+    showGameStartModal(state);
+  }
 }
 
 function renderTopBar(s) {
@@ -573,16 +599,23 @@ function renderPlayerHand(s) {
   });
 }
 
+function colorizeCards(text) {
+  return escHtml(text)
+    .replace(/(♥|♦)(10|[A-Z0-9])/g, '<span class="log-red">$1$2</span>')
+    .replace(/(♠|♣)(10|[A-Z0-9])/g, '<span class="log-white">$1$2</span>');
+}
+
 function renderLog(s) {
   const logEl = $('game-log');
   logEl.innerHTML = '';
-  (s.log || []).forEach(line => {
+  const lines = [...(s.log || [])].reverse();
+  lines.forEach(line => {
     const div = document.createElement('div');
     div.className = 'log-line' + (line.startsWith('─') ? ' separator' : '');
-    div.textContent = line;
+    div.innerHTML = colorizeCards(line);
     logEl.appendChild(div);
   });
-  logEl.scrollTop = logEl.scrollHeight;
+  logEl.scrollTop = 0;
 }
 
 function renderPhasePanel(s) {
@@ -592,7 +625,8 @@ function renderPhasePanel(s) {
   $('panel-waiting').classList.add('hidden');
 
   const msgEl = $('message-box');
-  msgEl.textContent = s.message || '';
+  const playDirected = msg => msg.startsWith('Follow') || msg.startsWith('No cards of led') || msg === 'Your lead.';
+  msgEl.textContent = (playDirected(s.message || '') && !s.is_my_play_turn) ? '' : (s.message || '');
 
   if (s.phase === 'bidding') {
     if (s.is_my_bid_turn) {
@@ -669,7 +703,9 @@ function renderPartnerInfo(s) {
     const p2d = symi[s.partner_2[0]] + rdisp[s.partner_2[1]];
     const p1n = s.partner_1_player ? escHtml(s.player_names[s.partner_1_player]) : (s.partner_1_revealed ? 'revealed' : '?');
     const p2n = s.partner_2_player ? escHtml(s.player_names[s.partner_2_player]) : (s.partner_2_revealed ? 'revealed' : '?');
-    box.innerHTML = `<div>Partners: ${escHtml(p1d)} (${p1n}) &amp; ${escHtml(p2d)} (${p2n})</div>`;
+    const p1c = (s.partner_1[0]==='h'||s.partner_1[0]==='d') ? '#f77' : '#ddd';
+    const p2c = (s.partner_2[0]==='h'||s.partner_2[0]==='d') ? '#f77' : '#ddd';
+    box.innerHTML = `<div>Partners: <strong style="color:${p1c}">${escHtml(p1d)}</strong> (${p1n}) &amp; <strong style="color:${p2c}">${escHtml(p2d)}</strong> (${p2n})</div>`;
   } else {
     box.classList.add('hidden');
   }

@@ -68,6 +68,37 @@ body {
 .black3 { color: #333; background: #fff; padding: 0 4px; border-radius: 3px; font-weight: bold; }
 
 /* ── Rules modal ──────────────────────────────────────────────── */
+/* ── Game-start modal ──────────────────────────────────────────────── */
+.game-start-modal {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(0,0,0,0.75);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.game-start-modal.hidden { display: none; }
+.game-start-inner {
+  background: var(--dark-card, #1e2233);
+  border: 2px solid var(--gold);
+  border-radius: 14px;
+  padding: 30px 34px 24px;
+  max-width: 400px; width: 100%;
+  text-align: center;
+}
+.game-start-title {
+  font-size: 1.5rem; font-weight: 800;
+  color: var(--gold); margin-bottom: 16px;
+  letter-spacing: 0.03em;
+}
+.game-start-body { font-size: 0.95rem; color: #ccc; line-height: 1.8; }
+.game-start-body .gs-trump { font-size: 1.1rem; font-weight: 700; }
+.game-start-body .gs-partners { font-size: 1rem; }
+.gs-red { color: #f77; font-weight: 700; }
+.gs-white { color: #ddd; font-weight: 700; }
+
+/* ── Log card colors ───────────────────────────────────────────────── */
+.log-red { color: #f77; font-weight: 600; }
+.log-white { color: #ddd; font-weight: 600; }
+
 .rules-modal {
   position: fixed; inset: 0; z-index: 1000;
   background: rgba(0,0,0,0.7);
