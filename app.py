@@ -1,6 +1,6 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, make_response
 from flask_socketio import SocketIO, emit, join_room as sio_join
-import os, random, string
+import os, random, string, uuid
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'black3_secret_2024_kala_teen')
@@ -8,7 +8,7 @@ socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', manage_s
 
 rooms = {}     # room_code -> room dict
 sid_room = {}  # socket_id -> room_code
-visit_count = 0
+unique_devices = set()  # cookie UUIDs of unique visitors
 connected_sockets = 0  # live WebSocket connections
 
 # ─── Card Constants ───────────────────────────────────────────────────────────
@@ -849,9 +849,13 @@ def client_state_mp(gs, viewer_seat, room):
 # ─── HTTP Routes ──────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
-    global visit_count
-    visit_count += 1
-    return render_template('index.html')
+    device_id = request.cookies.get('device_id')
+    resp = make_response(render_template('index.html'))
+    if not device_id:
+        device_id = str(uuid.uuid4())
+        resp.set_cookie('device_id', device_id, max_age=60*60*24*365, samesite='Lax')
+    unique_devices.add(device_id)
+    return resp
 
 @app.route('/stats')
 def stats():
@@ -862,7 +866,7 @@ def stats():
     fmt = request.args.get('fmt', '')
     data = {
         'connected_users': connected_sockets,
-        'visits': visit_count,
+        'unique_devices': len(unique_devices),
         'active_rooms': len(rooms),
         'active_players': active_players,
     }
@@ -876,7 +880,7 @@ def stats():
         f"<body><h1>Three of Spades – Live Stats</h1>"
         f"<table>"
         f"<tr><td>Connected users</td><td><strong>{connected_sockets}</strong></td></tr>"
-        f"<tr><td>Total page visits</td><td><strong>{visit_count}</strong></td></tr>"
+        f"<tr><td>Unique devices</td><td><strong>{len(unique_devices)}</strong></td></tr>"
         f"<tr><td>Active rooms</td><td><strong>{len(rooms)}</strong></td></tr>"
         f"<tr><td>Active human players</td><td><strong>{active_players}</strong></td></tr>"
         f"</table>"
