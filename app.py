@@ -835,7 +835,7 @@ def on_rejoin_room(data):
     found_seat = None
     if my_seat and my_seat in room['seats']:
         p = room['seats'][my_seat]
-        if p.get('name') == name:
+        if p.get('name') == name or p.get('human_name') == name:
             found_seat = my_seat
 
     if found_seat is None:
@@ -851,6 +851,10 @@ def on_rejoin_room(data):
 
     p['sid'] = sid
     p['is_bot'] = False
+    p['name'] = name  # restore original name
+    p.pop('human_name', None)
+    if room.get('gs'):
+        room['gs']['player_names'][found_seat] = name
     room['sid_to_seat'][sid] = found_seat
     sid_room[sid] = code
 
@@ -884,6 +888,7 @@ def on_disconnect():
         gs = room['gs']
         p['is_bot'] = True
         old_name = p['name']
+        p['human_name'] = old_name  # preserve for rejoin matching
         bot_name = f"Bot {seat}"
         p['name'] = bot_name
         gs['player_names'][seat] = bot_name
