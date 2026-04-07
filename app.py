@@ -190,10 +190,12 @@ def _high(cards):
 
 
 def _ace_gone(all_played, suit):
+    """Return True if the ace of this suit has already been played in a previous trick."""
     return (suit + 'a') in all_played
 
 
 def _trumps_gone(all_played, trump):
+    """Count how many trump cards have already been played across all previous tricks."""
     return sum(1 for c in all_played if c[0] == trump)
 
 
@@ -219,15 +221,23 @@ def _best_point_card(hand, all_played, trump):
 def ai_play_card(player_num, hand, played_order, played_cards, trump,
                  bidder_num, p1_num, p2_num, first_suit, trick_num,
                  all_played, partner_1_card, partner_2_card):
+    """
+    Main AI entry point — picks which card a bot should play.
+    Determines the bot's role (bidder / partner / opponent), then delegates
+    to either _ai_lead (bot is first to play this trick) or
+    _ai_follow (other cards already on the table).
+    """
     is_bidder = player_num == bidder_num
     is_partner = player_num in (p1_num, p2_num)
     is_bidder_team = is_bidder or is_partner
     trump_in_hand = [c for c in hand if c[0] == trump]
 
     if first_suit is None:
+        # No card has been led yet — this bot leads the trick
         return _ai_lead(player_num, hand, trump, trump_in_hand, is_bidder,
                         is_partner, p1_num, trick_num,
                         all_played, partner_1_card, partner_2_card)
+    # Cards are already on the table — bot must follow or trump
     return _ai_follow(player_num, hand, played_order, played_cards, trump,
                       first_suit, trump_in_hand, is_bidder, is_partner,
                       is_bidder_team, bidder_num, p1_num, p2_num, trick_num,
@@ -236,17 +246,25 @@ def ai_play_card(player_num, hand, played_order, played_cards, trump,
 
 def _ai_lead(player_num, hand, trump, trump_in_hand, is_bidder, is_partner,
              p1_num, trick_num, all_played, p1c, p2c):
+    """Route the lead decision to the correct role-specific strategy."""
     if is_bidder:
         return _bidder_lead(hand, trump, trump_in_hand, trick_num, all_played, p1c, p2c)
     if is_partner:
+        # Pass the *other* partner card so this partner can try to draw it out
         other_pc = p2c if player_num == p1_num else p1c
         return _partner_lead(hand, trump, trump_in_hand, trick_num, all_played, other_pc)
     return _opponent_lead(hand, trump, all_played)
 
 
 def _bidder_lead(hand, trump, trump_in_hand, trick_num, all_played, p1c, p2c):
-    has_ta = (trump + 'a') in hand
-    has_tk = (trump + 'k') in hand
+    """
+    Lead strategy for the bidder (the player who won the auction).
+    Tricks 1-3: lead trump to "clear" it — draw out opponents' trumps so the
+    bidder's team can win later tricks safely.
+    Tricks 4+: shift to maximising points (lead aces/kings of non-trump suits).
+    """
+    has_ta = (trump + 'a') in hand   # does bidder hold the trump ace?
+    has_tk = (trump + 'k') in hand   # does bidder hold the trump king?
 
     if trump_in_hand:
         if trick_num == 1:
@@ -312,6 +330,10 @@ def _partner_lead(hand, trump, trump_in_hand, trick_num, all_played, other_pc):
 
 
 def _opponent_lead(hand, trump, all_played):
+    """
+    Lead strategy for opponents (trying to score points against the bidder's team).
+    Lead aces/kings whenever safe, otherwise throw away the lowest-value card.
+    """
     high = _best_point_card(hand, all_played, trump)
     if high:
         return high
@@ -322,13 +344,22 @@ def _ai_follow(player_num, hand, played_order, played_cards, trump,
                first_suit, trump_in_hand, is_bidder, is_partner,
                is_bidder_team, bidder_num, p1_num, p2_num, trick_num,
                p1c, p2c):
+    """
+    Following strategy — called when at least one card is already on the table.
+    Key decisions:
+      • If following in a trump trick (tricks 1-3): use coordinated plays to
+        efficiently clear the trump suit.
+      • Otherwise: follow suit if possible; if winning is useful, try to win with
+        the lowest card that still beats the current best; if not useful, discard cheap.
+    """
     my_valid = valid_cards(hand, first_suit)
-    same_suit = [c for c in my_valid if c[0] == first_suit]
+    same_suit = [c for c in my_valid if c[0] == first_suit]  # cards matching led suit
 
+    # Who is currently winning the trick and with what card?
     win_idx = trick_winner_idx(played_cards, trump, first_suit)
     cur_winner = played_order[win_idx]
     cur_best = played_cards[win_idx]
-    winner_is_team = cur_winner in (bidder_num, p1_num, p2_num)
+    winner_is_team = cur_winner in (bidder_num, p1_num, p2_num)  # is a teammate winning?
 
     # ── Trump clearing tricks 1-3 ─────────────────────────────────────────────
     if first_suit == trump and trick_num <= 3:
@@ -362,33 +393,38 @@ def _ai_follow(player_num, hand, played_order, played_cards, trump,
                     return _low(can_beat)
             return _throwaway(hand, trump)
 
-    # ── All other tricks ──────────────────────────────────────────────────────
+    # ── All other tricks (non-trump lead, or tricks 4+) ───────────────────────
     pts_in_trick = sum(card_points(c) for c in played_cards)
 
     if same_suit:
+        # Player can follow suit
         if is_bidder_team:
             if winner_is_team and cur_winner != player_num:
+                # A teammate is already winning — play low to avoid wasting a good card
                 return _low(same_suit)
             can_beat = [c for c in same_suit if beats(c, cur_best, trump, first_suit)]
             if can_beat:
-                return _low(can_beat)
-            return _low(same_suit)
+                return _low(can_beat)   # win with the cheapest winning card
+            return _low(same_suit)      # can't win — play lowest to minimise loss
         else:
+            # Opponent following suit
             if not winner_is_team:
-                return _high(same_suit)
+                return _high(same_suit)   # opponent is winning — play highest to keep winning
             can_beat = [c for c in same_suit if beats(c, cur_best, trump, first_suit)]
             if can_beat:
-                return _low(can_beat)
-            return _low(same_suit)
+                return _low(can_beat)     # steal the trick from the bidder's team
+            return _low(same_suit)        # can't steal — play low
     else:
+        # Player can't follow suit — can trump or discard
         if is_bidder_team:
             if not winner_is_team:
+                # Teammate is losing — try to ruff (trump) to save the trick
                 can_beat = [c for c in trump_in_hand if beats(c, cur_best, trump, first_suit)]
                 if can_beat:
                     return _low(can_beat)
-            return _throwaway(hand, trump)
+            return _throwaway(hand, trump)   # teammate already winning — just discard
         else:
-            # Opponent: ruff if trick is valuable and team is winning it
+            # Opponent: only worth ruffing if the trick has lots of points AND bidder's team is taking it
             if winner_is_team and pts_in_trick >= 20:
                 can_beat = [c for c in trump_in_hand if beats(c, cur_best, trump, first_suit)]
                 if can_beat:
@@ -398,24 +434,33 @@ def _ai_follow(player_num, hand, played_order, played_cards, trump,
 
 # ─── Room Management ──────────────────────────────────────────────────────────
 def generate_room_code():
+    """Generate a unique 4-letter uppercase room code (e.g. 'ABCD')."""
     while True:
         code = ''.join(random.choices(string.ascii_uppercase, k=4))
-        if code not in rooms:
+        if code not in rooms:   # keep trying until we get one that isn't taken
             return code
 
 
 def get_human_seats(room):
+    """Return the set of seat numbers that are occupied by real (non-bot) players."""
     return {seat for seat, p in room['seats'].items() if not p['is_bot']}
 
 
 def broadcast_lobby(room_code):
+    """
+    Send a 'lobby_update' event to every human player currently in this room's lobby.
+    Each player gets a personalised payload: is_host, my_seat, vote-kick tally, etc.
+    Called whenever the lobby roster changes (join, leave, kick).
+    """
     room = rooms[room_code]
+    # Build the player list visible to everyone (sorted by seat number)
     players_list = [
         {'seat': s, 'name': room['seats'][s]['name'], 'is_bot': room['seats'][s]['is_bot']}
         for s in sorted(room['seats'])
     ]
     host_seat = room['sid_to_seat'].get(room['host_sid'])
     host_name = room['seats'].get(host_seat, {}).get('name', 'Host')
+    # Vote-kick: majority of non-host humans needed to remove the host
     non_host_humans = [s for s, p in room['seats'].items() if not p['is_bot'] and s != host_seat]
     vote_needed = len(non_host_humans) // 2 + 1
     vote_count = len(room.get('vote_kick_votes', set()))
@@ -434,6 +479,11 @@ def broadcast_lobby(room_code):
 
 
 def broadcast_game_state(room_code):
+    """
+    Send each human player their own personalised 'game_state' snapshot.
+    Each player sees different data (e.g. only they see their own hand, partner
+    secrecy is filtered per-viewer). Bots are skipped — they don't have sockets.
+    """
     room = rooms[room_code]
     gs = room.get('gs')
     if not gs:
@@ -445,60 +495,85 @@ def broadcast_game_state(room_code):
 
 # ─── Game State ───────────────────────────────────────────────────────────────
 def create_game_mp(names_dict, game_scores=None, start_seat=1):
+    """
+    Create a fresh game-state dict for a new round.
+    - Shuffles and deals 8 cards to each of the 6 seats.
+    - bid_order is everyone except start_seat (they all bid first); start_seat
+      holds the mandatory 170 and is processed last.
+    - game_scores carries over from the previous round if supplied.
+    - opening_done starts False and is flipped on the very first call to
+      _process_bidding_mp, so we only show the mandatory-opening choice once.
+    """
     deck = [s + r for s in SUITS for r in RANKS]
     random.shuffle(deck)
+    # Deal 8 cards to each seat, sorted for display
     hands = {i + 1: sorted(deck[i * 8:(i + 1) * 8], key=card_sort_key) for i in range(6)}
-    # bid_order: everyone else bids first, start_seat holds mandatory 170 at end
+    # bid_order: seats 2-6 relative to start_seat bid first; start_seat bids last (mandatory)
     bid_order = [(start_seat - 1 + i) % 6 + 1 for i in range(1, 7)]
     gs = {
-        'phase': 'bidding',
-        'player_names': names_dict,
-        'hands': hands,
-        'bid': 170,
-        'last_bidder': start_seat,
-        'start_seat': start_seat,
-        'passed': {i: False for i in range(1, 7)},
-        'pass_count': 0,
-        'bid_pos': 0,
-        'bid_order': bid_order,
-        'bidding_seat': None,
-        'bidder': None,
-        'trump': None,
-        'partner_1': None,
-        'partner_2': None,
-        'partner_1_player': None,
-        'partner_2_player': None,
-        'trick_num': 1,
-        'trick_leader': None,
-        'trick_play_order': [],
-        'trick_cards': [],
-        'trick_played_by': [],
-        'first_suit': None,
-        'tricks_won': {i: [] for i in range(1, 7)},
-        'last_trick_info': None,
-        'game_scores': game_scores or {i: 0 for i in range(1, 7)},
-        'round_result': None,
-        'log': [],
-        'message': '',
+        'phase': 'bidding',         # current game phase
+        'player_names': names_dict, # seat_num -> display name
+        'hands': hands,             # seat_num -> list of card strings
+        'bid': 170,                 # current highest bid (starts at mandatory 170)
+        'last_bidder': start_seat,  # who last raised the bid (starts as mandatory holder)
+        'start_seat': start_seat,   # seat that holds the mandatory 170 this round
+        'passed': {i: False for i in range(1, 7)},  # who has passed already
+        'pass_count': 0,            # how many players have passed (bidding ends at 5)
+        'bid_pos': 0,               # position in bid_order we're currently processing
+        'bid_order': bid_order,     # order in which seats are asked to bid
+        'bidding_seat': None,       # seat currently waiting for a human bid (None = bot/auto)
+        'bidder': None,             # seat that won the auction (set in _finish_bidding_mp)
+        'trump': None,              # trump suit letter chosen by bidder
+        'partner_1': None,          # first partner card string (e.g. 'ha' = ♥A)
+        'partner_2': None,          # second partner card string
+        'partner_1_player': None,   # seat that holds partner_1 (revealed at game start)
+        'partner_2_player': None,   # seat that holds partner_2
+        'trick_num': 1,             # current trick number (1-8)
+        'trick_leader': None,       # seat that leads the current trick
+        'trick_play_order': [],     # clockwise play order for the current trick
+        'trick_cards': [],          # cards played so far in the current trick
+        'trick_played_by': [],      # which seat played each card in trick_cards
+        'first_suit': None,         # suit of the first card played this trick (led suit)
+        'tricks_won': {i: [] for i in range(1, 7)},  # seat -> list of cards won
+        'last_trick_info': None,    # summary of the just-finished trick (shown as banner)
+        'game_scores': game_scores or {i: 0 for i in range(1, 7)},  # cumulative scores
+        'round_result': None,       # scoring breakdown (set in _calculate_scores)
+        'log': [],                  # list of log message strings shown in the sidebar
+        'message': '',              # short status message shown above the trick table
     }
-    gs['opening_done'] = False
-    gs['partner_1_revealed'] = False
+    gs['opening_done'] = False          # guard: opening choice has NOT been offered yet
+    gs['partner_1_revealed'] = False    # partner cards start secret until played
     gs['partner_2_revealed'] = False
     return gs
 
 
 # ─── Bidding Logic ────────────────────────────────────────────────────────────
 def _process_bidding_mp(room):
+    """
+    Drive the bidding loop forward by one step.
+    Called repeatedly (each human action and each bot turn calls it again).
+    Returns early (suspending the loop) whenever it needs to wait for a human
+    to act — SocketIO will call on_bid_action() which then calls this again.
+
+    Flow:
+      1. On the very first call (opening_done=False): offer the mandatory-bid
+         holder a choice to open at 170 or jump straight to 270.
+      2. After that: iterate through bid_order, skipping passed players.
+         - Human seat → pause, broadcast state, and wait for bid_action event.
+         - Bot seat   → auto-bid or pass based on ai_max_bid(), then continue.
+      3. When 5 players have passed (only one left), call _finish_bidding_mp.
+    """
     gs = room['gs']
     human_seats = get_human_seats(room)
     order = gs['bid_order']
 
-    # First call: give the mandatory-bid holder a chance to jump to 270 immediately
+    # ── Step 1: Mandatory opening choice (runs exactly once per round) ─────────
     if not gs.get('opening_done', False):
         gs['opening_done'] = True
         start = gs['start_seat']
         name = gs['player_names'][start]
         if start in human_seats:
+            # Human holds the mandatory — pause and show them the opening panel
             gs['bidding_seat'] = start
             gs['mandatory_opening'] = True
             gs['message'] = "You hold the mandatory 170. Open at 170 or jump to 270 now?"
@@ -514,27 +589,29 @@ def _process_bidding_mp(room):
                 return
             gs['log'].append(f"{name} opens with the mandatory bid of 170.")
 
+    # ── Step 2: Main bidding loop — process each player in bid_order ──────────
     while gs['pass_count'] < 5:
         pos = gs['bid_pos'] % len(order)
         player = order[pos]
         gs['bid_pos'] += 1
 
         if gs['passed'][player]:
-            continue
+            continue    # already passed — skip
 
         if player in human_seats:
+            # Pause: human must choose bid or pass via the UI
             gs['bidding_seat'] = player
             name = gs['player_names'][player]
             gs['message'] = f"{name}: bid {gs['bid'] + 10} or pass?"
             broadcast_game_state(room['code'])
             return
 
-        # Bot turn
+        # ── Bot turn ──────────────────────────────────────────────────────────
         max_b = ai_max_bid(gs['hands'][player])
         next_bid = gs['bid'] + 10
         name = gs['player_names'][player]
 
-        # Bot with a strong enough hand jumps directly to 270
+        # Bot with a strong enough hand jumps directly to 270 (skips incremental bids)
         if max_b >= 270 and gs['bid'] < 270:
             gs['bid'] = 270
             gs['last_bidder'] = player
@@ -543,6 +620,7 @@ def _process_bidding_mp(room):
             return
 
         if next_bid <= max_b and next_bid <= 270:
+            # Bot can afford the next increment — bid it
             gs['bid'] = next_bid
             gs['last_bidder'] = player
             gs['log'].append(f"{name} bids {next_bid}.")
@@ -550,6 +628,7 @@ def _process_bidding_mp(room):
                 _finish_bidding_mp(room)
                 return
         else:
+            # Bot's hand isn't worth the next bid — pass
             gs['passed'][player] = True
             gs['pass_count'] += 1
             gs['log'].append(f"{name} passes.")
@@ -561,17 +640,23 @@ def _process_bidding_mp(room):
 
 
 def _finish_bidding_mp(room):
+    """
+    Conclude the bidding phase: record the winner, then either wait for a
+    human bidder to choose trump/partners or let a bot do it automatically.
+    """
     gs = room['gs']
     gs['bidding_seat'] = None
-    gs['bidder'] = gs['last_bidder']
+    gs['bidder'] = gs['last_bidder']   # whoever last raised the bid wins
     bidder_name = gs['player_names'][gs['bidder']]
     gs['log'].append(f"─── {bidder_name} wins the bid at {gs['bid']}! ───")
 
     if gs['bidder'] in get_human_seats(room):
+        # Human bidder — show the trump/partner selection panel
         gs['phase'] = 'set_trump'
         gs['message'] = f"{bidder_name}, choose trump suit and partner cards."
         broadcast_game_state(room['code'])
     else:
+        # Bot bidder — auto-select trump and partners, then start playing
         gs['phase'] = 'set_trump'
         trump = ai_choose_trump(gs['hands'][gs['bidder']])
         p1, p2 = ai_choose_partners(gs['hands'][gs['bidder']], trump)
@@ -580,11 +665,18 @@ def _finish_bidding_mp(room):
 
 # ─── Trump / Partners ─────────────────────────────────────────────────────────
 def _apply_trump_partners_mp(room, trump, partner_1, partner_2, auto=False):
+    """
+    Lock in the trump suit and partner cards, then transition to the playing phase.
+    Scans all hands to discover which seats hold each partner card (those seats
+    become the bidder's secret allies).
+    auto=True means a bot made this choice — the log message reflects that.
+    """
     gs = room['gs']
     gs['trump'] = trump
     gs['partner_1'] = partner_1
     gs['partner_2'] = partner_2
 
+    # Discover which seats hold the partner cards
     for pnum in range(1, 7):
         hand = gs['hands'][pnum]
         if partner_1 in hand: gs['partner_1_player'] = pnum
@@ -599,6 +691,7 @@ def _apply_trump_partners_mp(room, trump, partner_1, partner_2, auto=False):
         f"partners: {p1_disp} & {p2_disp}."
     )
 
+    # Move to playing phase — bidder leads the first trick
     gs['phase'] = 'playing'
     gs['trick_leader'] = gs['bidder']
     gs['trick_play_order'] = get_trick_play_order(gs['trick_leader'])
@@ -608,6 +701,11 @@ def _apply_trump_partners_mp(room, trump, partner_1, partner_2, auto=False):
 
 
 def _validate_trump_partners(gs, trump, p1, p2, bidder_seat):
+    """
+    Server-side validation for the human bidder's trump/partner choices.
+    Returns an error string if invalid, or None if everything is fine.
+    Prevents cheating or accidental selection of cards the bidder already holds.
+    """
     if trump not in SUITS: return "Invalid trump suit."
     all_cards = [s + r for s in SUITS for r in RANKS]
     if p1 not in all_cards: return f"Invalid partner card: {p1}"
@@ -621,6 +719,16 @@ def _validate_trump_partners(gs, trump, p1, p2, bidder_seat):
 
 # ─── Trick Logic ──────────────────────────────────────────────────────────────
 def _process_trick_auto_mp(room):
+    """
+    Advance the current trick as far as possible without needing human input.
+    Runs in a while loop — each iteration either:
+      - Plays a bot card and pauses 0.5s (so humans can see bot moves), OR
+      - Hits a human's turn and returns early (waiting for play_card_action), OR
+      - Finishes a full 6-card trick (5s pause so humans can read it), then
+        starts the next trick or moves to scoring.
+
+    socketio.sleep() is non-blocking in gevent — other requests still process.
+    """
     gs = room['gs']
     human_seats = get_human_seats(room)
     has_humans = bool(human_seats)
@@ -628,12 +736,13 @@ def _process_trick_auto_mp(room):
     while gs['phase'] == 'playing':
         pos = len(gs['trick_cards'])
         if pos >= 6:
-            # Show completed trick for 5s before clearing
+            # All 6 players have played — show the completed trick briefly then resolve it
             if has_humans:
                 broadcast_game_state(room['code'])
-                socketio.sleep(5)
+                socketio.sleep(5)   # 5-second pause so humans can read who won
             _finish_trick(gs)
             if gs['phase'] != 'playing':
+                # Round ended (scoring phase) — broadcast final state and stop
                 broadcast_game_state(room['code'])
                 return
             if gs['trick_leader'] in human_seats:
@@ -688,12 +797,21 @@ def _process_trick_auto_mp(room):
 
 
 def _finish_trick(gs):
+    """
+    Resolve a completed 6-card trick:
+      1. Find the winning card using beats() logic.
+      2. Award all 6 cards to the winner's tricks_won pile (scored at end of round).
+      3. Log the result and save last_trick_info (used for the "last trick" banner in the UI).
+      4. Advance trick_num; if that was trick 8, jump to scoring.
+      5. Otherwise set the trick_leader to the winner (they lead next).
+    """
     cards = gs['trick_cards']
     first_suit = cards[0][0] if cards else gs['first_suit']
     win_idx = trick_winner_idx(cards, gs['trump'], first_suit)
     winner_num = gs['trick_played_by'][win_idx]
     winner_name = gs['player_names'][winner_num]
 
+    # Give all cards in this trick to the winner
     for card in cards:
         gs['tricks_won'][winner_num].append(card)
 
@@ -701,6 +819,7 @@ def _finish_trick(gs):
     win_disp = SUIT_SYMBOLS[cards[win_idx][0]] + RANK_DISPLAY[cards[win_idx][1]]
     gs['log'].append(f"Trick {gs['trick_num']}: {winner_name} wins with {win_disp} ({pts} pts)")
 
+    # Save for the last-trick banner shown at the top of the next trick
     gs['last_trick_info'] = {
         'order': list(gs['trick_played_by']),
         'cards': list(cards),
@@ -714,13 +833,25 @@ def _finish_trick(gs):
     gs['first_suit'] = None
 
     if gs['trick_num'] > 8:
-        _calculate_scores(gs)
+        _calculate_scores(gs)   # all 8 tricks done — tally points
         return
     gs['trick_play_order'] = get_trick_play_order(gs['trick_leader'])
 
 
 def _calculate_scores(gs):
+    """
+    Tally the round results and update cumulative game_scores.
+
+    Scoring rules:
+      • Team = bidder + partner_1_player + partner_2_player
+      • Bidder's team wins if their combined trick points >= the bid.
+        - Win:  bidder earns bid×2 (or 1000 if bid was 270), each partner earns bid.
+        - Lose: each opponent earns bid, bidder LOSES bid (deducted).
+      • p1p / p2p may be the same seat if the bidder named a card they both hold
+        (edge case: treated as one partner, counted once).
+    """
     gs['phase'] = 'scoring'
+    # Sum up each player's trick-point haul from the cards they won
     player_pts = {pnum: sum(card_points(c) for c in gs['tricks_won'][pnum])
                   for pnum in range(1, 7)}
     bidder = gs['bidder']
@@ -728,11 +859,13 @@ def _calculate_scores(gs):
     p2p = gs['partner_2_player']
     bid = gs['bid']
 
+    # Combine the bidder's team's points (avoid double-counting if partners share a seat)
     team_pts = player_pts[bidder]
     if p1p: team_pts += player_pts[p1p]
     if p2p and p2p != p1p: team_pts += player_pts[p2p]
 
     bidder_won = team_pts >= bid
+    # Store the full breakdown for the scoring panel in the UI
     gs['round_result'] = {
         'bidder': bidder,
         'bidder_name': gs['player_names'][bidder],
@@ -745,6 +878,7 @@ def _calculate_scores(gs):
     }
 
     if bidder_won:
+        # Special 270 bonus: winning a maximum bid earns 1000 pts instead of bid×2
         bidder_award = 1000 if bid == 270 else bid * 2
         gs['game_scores'][bidder] += bidder_award
         if p1p: gs['game_scores'][p1p] += bid
@@ -754,6 +888,7 @@ def _calculate_scores(gs):
             f"─── {gs['player_names'][bidder]}'s team wins! ({team_pts} ≥ {bid}){suffix}"
         )
     else:
+        # Bidder's team fell short — opponents each earn the bid; bidder loses the bid
         for pnum in range(1, 7):
             if pnum not in (bidder, p1p, p2p):
                 gs['game_scores'][pnum] += bid
@@ -765,6 +900,11 @@ def _calculate_scores(gs):
 
 
 def _validate_play(gs, card, seat):
+    """
+    Server-side validation before accepting a human's card play.
+    Returns an error string if the play is illegal, or None if it's fine.
+    Checks: correct phase, correct turn, card in hand, suit-following rule.
+    """
     if gs['phase'] != 'playing': return "Not in playing phase."
     pos = len(gs['trick_cards'])
     order = gs.get('trick_play_order', [])
@@ -778,10 +918,21 @@ def _validate_play(gs, card, seat):
 
 # ─── Client State ─────────────────────────────────────────────────────────────
 def client_state_mp(gs, viewer_seat, room):
+    """
+    Build the JSON payload sent to one specific human player (viewer_seat).
+    Each player gets a personalised view — they only see:
+      • Their own hand (with 'valid' flags for playable cards)
+      • Partner identities only if they are the bidder, are that partner, or
+        the card has been played and revealed
+    Everything else (opponent hand counts, trick display, scores, etc.) is
+    the same for all players.
+    """
     hand = gs['hands'].get(viewer_seat, [])
     first_suit = gs.get('first_suit')
+    # During playing phase, mark which cards are legal to play (suit-following rule)
     vc = valid_cards(hand, first_suit) if gs['phase'] == 'playing' else hand
 
+    # Enrich each card with its display symbol and whether it can be played now
     hand_display = [{
         'card': c,
         'disp': SUIT_SYMBOLS[c[0]] + RANK_DISPLAY[c[1]],
@@ -909,12 +1060,17 @@ def client_state_mp(gs, viewer_seat, room):
 # ─── HTTP Routes ──────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
+    """
+    Serve the game page. On the first visit from a browser, set a UUID cookie
+    that persists for 1 year — this lets us count unique devices on /stats
+    without requiring login. Returning visitors reuse their existing cookie.
+    """
     device_id = request.cookies.get('device_id')
     resp = make_response(render_template('index.html'))
     if not device_id:
         device_id = str(uuid.uuid4())
         resp.set_cookie('device_id', device_id, max_age=60*60*24*365, samesite='Lax')
-    unique_devices.add(device_id)
+    unique_devices.add(device_id)   # set ignores duplicates automatically
     return resp
 
 @app.route('/stats')
@@ -953,12 +1109,20 @@ def stats():
 # ─── Socket Events ────────────────────────────────────────────────────────────
 @socketio.on('connect')
 def on_connect():
+    """Track every new WebSocket connection for the /stats live counter."""
     global connected_sockets
     connected_sockets += 1
 
 
 @socketio.on('rejoin_room')
 def on_rejoin_room(data):
+    """
+    Handle page refresh / reconnect recovery.
+    The client stores its room code, seat number, and name in localStorage and
+    sends them on reconnect. If we can match the seat (by name), we swap the
+    old socket ID for the new one and restore the player's full game view.
+    If we can't find the room/seat, we send 'room_lost' to redirect to setup.
+    """
     sid = request.sid
     code = (data.get('code') or '').strip().upper()
     my_seat = data.get('seat')
@@ -970,7 +1134,7 @@ def on_rejoin_room(data):
 
     room = rooms[code]
 
-    # Find the player's seat by seat number + matching name
+    # Match by seat number AND name (human_name used if seat was botted during disconnect)
     found_seat = None
     if my_seat and my_seat in room['seats']:
         p = room['seats'][my_seat]
@@ -981,7 +1145,7 @@ def on_rejoin_room(data):
         emit('room_lost', {})
         return
 
-    # Re-associate this socket with the seat
+    # Re-associate new socket with the seat, clean up the old socket mapping
     p = room['seats'][found_seat]
     old_sid = p.get('sid')
     if old_sid:
@@ -990,18 +1154,18 @@ def on_rejoin_room(data):
 
     p['sid'] = sid
     p['is_bot'] = False
-    p['name'] = name  # restore original name
-    p.pop('human_name', None)
+    p['name'] = name            # restore display name (may have been replaced by "Bot X")
+    p.pop('human_name', None)   # remove the backup name stored on disconnect
     if room.get('gs'):
-        room['gs']['player_names'][found_seat] = name
+        room['gs']['player_names'][found_seat] = name   # sync game state name
     room['sid_to_seat'][sid] = found_seat
     sid_room[sid] = code
 
-    # Re-assign host if the original host is rejoining
+    # Re-assign host if the original host is rejoining (their sid changed on reconnect)
     if old_sid == room.get('host_sid'):
         room['host_sid'] = sid
 
-    sio_join(code)
+    sio_join(code)   # re-subscribe to the SocketIO room for broadcasts
 
     if room['status'] == 'lobby':
         broadcast_lobby(code)
@@ -1011,6 +1175,17 @@ def on_rejoin_room(data):
 
 @socketio.on('disconnect')
 def on_disconnect():
+    """
+    Handle a player closing their tab or losing connection.
+
+    Mid-game: the seat is converted to a bot so the game can continue.
+              The player's real name is saved as 'human_name' so they can
+              rejoin and reclaim their seat. If ALL humans disconnect, the
+              room is deleted (no point keeping a fully-bot game).
+
+    In lobby: the seat is simply removed. If the room becomes empty, delete it.
+              If the host left, assign a new host to the next human in the room.
+    """
     global connected_sockets
     connected_sockets = max(0, connected_sockets - 1)
     sid = request.sid
@@ -1023,9 +1198,10 @@ def on_disconnect():
         return
     p = room['seats'].get(seat)
     if not p or p['is_bot']:
-        return
+        return  # already a bot seat — nothing to do
     p['sid'] = None
     if room.get('gs') and room['status'] == 'playing':
+        # Mid-game disconnect: bot takes over the seat
         gs = room['gs']
         p['is_bot'] = True
         old_name = p['name']
@@ -1034,16 +1210,17 @@ def on_disconnect():
         p['name'] = bot_name
         gs['player_names'][seat] = bot_name
         gs['log'].append(f"{old_name} disconnected (bot takes over).")
-        # Clean up room if no humans remain
+        # Delete the room if no humans remain (ghost room prevention)
         if not any(not pl['is_bot'] for pl in room['seats'].values()):
             del rooms[room_code]
             return
         _process_trick_auto_mp(room)
     else:
+        # Lobby disconnect: remove the seat entirely
         del room['seats'][seat]
         del room['sid_to_seat'][sid]
         if room['seats']:
-            # Assign new host if needed
+            # If the host left, promote the next available human to host
             if room['host_sid'] == sid:
                 for remaining in room['seats'].values():
                     if not remaining['is_bot'] and remaining.get('sid'):
@@ -1051,28 +1228,34 @@ def on_disconnect():
                         break
             broadcast_lobby(room_code)
         else:
-            del rooms[room_code]
+            del rooms[room_code]   # last person left — clean up the room
 
 
 @socketio.on('kick_player')
 def on_kick_player(data):
+    """
+    Host-initiated kick. Only the host can call this.
+    Sends 'kicked' to the target's socket (client redirects them to setup),
+    then replaces the seat with a bot mid-game or removes it in the lobby.
+    """
     sid = request.sid
     room_code = sid_room.get(sid)
     if not room_code or room_code not in rooms:
         return
     room = rooms[room_code]
     if room['host_sid'] != sid:
-        return
+        return  # only the host can kick
     target_seat = data.get('seat')
     if not target_seat or target_seat not in room['seats']:
         return
     p = room['seats'][target_seat]
     if p.get('is_bot'):
-        return
+        return  # can't kick a bot
     host_seat = room['sid_to_seat'].get(sid)
     if host_seat == target_seat:
-        return
+        return  # host can't kick themselves
 
+    # Notify and disconnect the kicked player's socket
     target_sid = p.get('sid')
     if target_sid:
         socketio.emit('kicked', {}, to=target_sid)
@@ -1080,6 +1263,7 @@ def on_kick_player(data):
         room['sid_to_seat'].pop(target_sid, None)
 
     if room.get('gs') and room['status'] == 'playing':
+        # Mid-game: replace with a bot so the round can continue
         gs = room['gs']
         p['is_bot'] = True
         old_name = p['name']
@@ -1090,12 +1274,22 @@ def on_kick_player(data):
         broadcast_game_state(room_code)
         _process_trick_auto_mp(room)
     else:
+        # Lobby: just remove the seat
         del room['seats'][target_seat]
         broadcast_lobby(room_code)
 
 
 @socketio.on('vote_kick_host')
 def on_vote_kick_host():
+    """
+    Non-host players can call a vote to remove the host.
+    Each eligible player (non-host, non-bot, connected) can cast one vote.
+    Once a simple majority of non-host humans have voted, the kick executes:
+      - Host is sent 'kicked' and disconnected.
+      - Seat is botted mid-game or removed in lobby.
+      - The lowest-numbered remaining human becomes the new host.
+    Before the threshold is reached, all players are updated with the new tally.
+    """
     sid = request.sid
     room_code = sid_room.get(sid)
     if not room_code or room_code not in rooms:
@@ -1109,18 +1303,19 @@ def on_vote_kick_host():
         return  # host can't vote to kick themselves
     p = room['seats'].get(seat)
     if not p or p.get('is_bot'):
-        return
+        return  # bots don't vote
 
     if 'vote_kick_votes' not in room:
         room['vote_kick_votes'] = set()
-    room['vote_kick_votes'].add(seat)
+    room['vote_kick_votes'].add(seat)   # set prevents double-voting
 
+    # Need more than half of non-host humans (e.g. 2-of-3, 3-of-5)
     non_host_humans = [s for s, pl in room['seats'].items() if not pl['is_bot'] and s != host_seat]
     needed = len(non_host_humans) // 2 + 1
 
     if len(room['vote_kick_votes']) >= needed:
-        # Execute the kick
-        room['vote_kick_votes'] = set()
+        # Threshold reached — execute the vote-kick
+        room['vote_kick_votes'] = set()   # reset for next potential vote
         host_p = room['seats'].get(host_seat)
         host_name = host_p.get('name', 'Host') if host_p else 'Host'
         host_sid = room['host_sid']
@@ -1168,25 +1363,34 @@ def on_vote_kick_host():
 
 @socketio.on('create_room')
 def on_create_room(data):
+    """
+    Create a new room. The creator automatically becomes seat 1 and the host.
+    A fresh room starts in 'lobby' status with no game state yet.
+    """
     sid = request.sid
     name = (data.get('name') or 'Player').strip()[:20] or 'Player'
     code = generate_room_code()
     rooms[code] = {
         'code': code,
-        'host_sid': sid,
-        'status': 'lobby',
+        'host_sid': sid,        # sid of whoever can start the game / kick players
+        'status': 'lobby',      # 'lobby' or 'playing'
         'seats': {1: {'name': name, 'sid': sid, 'is_bot': False}},
-        'sid_to_seat': {sid: 1},
-        'gs': None,
-        'vote_kick_votes': set(),
+        'sid_to_seat': {sid: 1},  # reverse map: sid -> seat number
+        'gs': None,               # no game state yet — filled by start_game
+        'vote_kick_votes': set(), # set of seat numbers that have voted to kick the host
     }
     sid_room[sid] = code
-    sio_join(code)
+    sio_join(code)         # subscribe this socket to the SocketIO room channel
     broadcast_lobby(code)
 
 
 @socketio.on('join_room_req')
 def on_join_room(data):
+    """
+    Handle a player joining an existing room by code.
+    If the game is already in progress, the player can only join by taking over
+    a bot seat (mid-game join). If the lobby is full (6 humans), reject the join.
+    """
     sid = request.sid
     code = (data.get('code') or '').strip().upper()
     name = (data.get('name') or 'Player').strip()[:20] or 'Player'
@@ -1196,13 +1400,13 @@ def on_join_room(data):
         return
     room = rooms[code]
 
-    # Prevent duplicate joins from the same socket
+    # Prevent duplicate joins from the same socket (e.g. double-clicking Join)
     if sid in room['sid_to_seat']:
         broadcast_lobby(code)
         return
 
     if room['status'] == 'playing':
-        # Allow joining mid-game only if a bot seat exists
+        # Mid-game join: find the lowest-numbered bot seat to take over
         bot_seat = next(
             (s for s, p in sorted(room['seats'].items()) if p['is_bot']),
             None
@@ -1210,7 +1414,7 @@ def on_join_room(data):
         if bot_seat is None:
             emit('join_error', {'msg': 'Game in progress and no open seats.'})
             return
-        # Replace the bot with this human player
+        # Swap the bot out for this human
         p = room['seats'][bot_seat]
         p['name'] = name
         p['sid'] = sid
@@ -1218,13 +1422,14 @@ def on_join_room(data):
         room['sid_to_seat'][sid] = bot_seat
         sid_room[sid] = code
         sio_join(code)
-        # Update the game state player name too
+        # Sync the game state player name so the log shows their real name
         if room.get('gs'):
             room['gs']['player_names'][bot_seat] = name
             room['gs']['log'].append(f"{name} joined and took over Bot seat {bot_seat}.")
         broadcast_game_state(code)
         return
 
+    # Normal lobby join: assign the next available seat number
     occupied = set(room['seats'].keys())
     next_seat = next((s for s in range(1, 7) if s not in occupied), None)
     if next_seat is None:
@@ -1240,6 +1445,10 @@ def on_join_room(data):
 
 @socketio.on('start_game')
 def on_start_game(_data):
+    """
+    Host starts the game. Fills any empty seats with bots (numbered 1-6),
+    resets vote-kick state, creates a fresh game state, and kicks off bidding.
+    """
     sid = request.sid
     room_code = sid_room.get(sid)
     if not room_code or room_code not in rooms:
@@ -1250,7 +1459,7 @@ def on_start_game(_data):
         emit('game_error', {'msg': 'Only the host can start.'})
         return
 
-    # Fill empty seats with bots
+    # Fill every seat that has no human player with a numbered bot
     bot_num = 1
     for s in range(1, 7):
         if s not in room['seats']:
@@ -1258,7 +1467,7 @@ def on_start_game(_data):
             bot_num += 1
 
     room['status'] = 'playing'
-    room['vote_kick_votes'] = set()
+    room['vote_kick_votes'] = set()   # clear any stale votes from the lobby
     names_dict = {seat: p['name'] for seat, p in room['seats'].items()}
     room['gs'] = create_game_mp(names_dict)
     _process_bidding_mp(room)
@@ -1266,6 +1475,17 @@ def on_start_game(_data):
 
 @socketio.on('bid_action')
 def on_bid_action(data):
+    """
+    Receive a human player's bid decision.
+    Expected payload: { bid_yes: bool, jump_to_270: bool (optional) }
+
+    Two cases:
+      1. mandatory_opening=True: player chooses to open at 170 (continue bidding)
+         or jump straight to 270 and lock it in.
+      2. Normal bid: player either raises by 10 (or jumps to 270) or passes.
+    In both cases, after recording the action, call _process_bidding_mp to
+    continue the automated bidding loop.
+    """
     sid = request.sid
     room_code = sid_room.get(sid)
     if not room_code or room_code not in rooms:
@@ -1279,7 +1499,7 @@ def on_bid_action(data):
         emit('game_error', {'msg': 'Not your turn to bid.'})
         return
 
-    # Handle the mandatory opening choice (open at 170 and let others bid, or jump to 270 now)
+    # ── Case 1: Mandatory opening choice ──────────────────────────────────────
     if gs.get('mandatory_opening'):
         gs.pop('mandatory_opening', None)
         gs['bidding_seat'] = None
@@ -1290,15 +1510,18 @@ def on_bid_action(data):
             gs['log'].append(f"{name} bids 270!")
             _finish_bidding_mp(room)
         else:
+            # Open at 170 and allow others to bid
             gs['log'].append(f"{name} opens with the mandatory bid of 170.")
             _process_bidding_mp(room)
         return
 
+    # ── Case 2: Regular bid or pass ───────────────────────────────────────────
     bid_yes = data.get('bid_yes', False)
     jump_to_270 = data.get('jump_to_270', False)
     name = gs['player_names'][seat]
 
     if bid_yes:
+        # Raise the bid (by 10, or directly to 270 if jump button was pressed)
         new_bid = 270 if jump_to_270 else min(gs['bid'] + 10, 270)
         gs['bid'] = new_bid
         gs['last_bidder'] = seat
@@ -1308,20 +1531,27 @@ def on_bid_action(data):
             _finish_bidding_mp(room)
             return
     else:
+        # Player passes — increment pass counter
         gs['passed'][seat] = True
         gs['pass_count'] += 1
         gs['log'].append(f"{name} passes.")
         if gs['pass_count'] >= 5:
+            # 5 players have passed — the last bidder wins by default
             gs['bidding_seat'] = None
             _finish_bidding_mp(room)
             return
 
     gs['bidding_seat'] = None
-    _process_bidding_mp(room)
+    _process_bidding_mp(room)   # continue the loop to the next player
 
 
 @socketio.on('set_trump_action')
 def on_set_trump(data):
+    """
+    Receive the bidder's trump suit and two partner card choices.
+    Validates them server-side (suit valid, cards not in bidder's hand, not duplicates),
+    then calls _apply_trump_partners_mp to lock them in and start the playing phase.
+    """
     sid = request.sid
     room_code = sid_room.get(sid)
     if not room_code or room_code not in rooms:
@@ -1347,6 +1577,11 @@ def on_set_trump(data):
 
 @socketio.on('play_card_action')
 def on_play_card(data):
+    """
+    Receive a human player's card play. Validates the play (turn order, suit following),
+    then adds the card to the trick and continues the automated trick loop.
+    Playing a partner card here reveals that player's team identity.
+    """
     sid = request.sid
     room_code = sid_room.get(sid)
     if not room_code or room_code not in rooms:
@@ -1364,7 +1599,8 @@ def on_play_card(data):
 
     gs['hands'][seat].remove(card)
     if not gs['trick_cards']:
-        gs['first_suit'] = card[0]
+        gs['first_suit'] = card[0]   # first card played sets the led suit
+    # If a partner card is played, mark it as revealed for all players
     if card == gs.get('partner_1'): gs['partner_1_revealed'] = True
     if card == gs.get('partner_2'): gs['partner_2_revealed'] = True
     gs['trick_cards'].append(card)
@@ -1372,11 +1608,16 @@ def on_play_card(data):
     name = gs['player_names'][seat]
     disp = SUIT_SYMBOLS[card[0]] + RANK_DISPLAY[card[1]]
     gs['log'].append(f"  {name} plays {disp}")
-    _process_trick_auto_mp(room)
+    _process_trick_auto_mp(room)   # resume the loop for bot plays / trick resolution
 
 
 @socketio.on('new_round_action')
 def on_new_round(_data):
+    """
+    Start the next round after the scoring screen.
+    Carries over cumulative game_scores and player names, advances the mandatory
+    start_seat by 1 (rotates clockwise), and launches fresh bidding.
+    """
     sid = request.sid
     room_code = sid_room.get(sid)
     if not room_code or room_code not in rooms:
@@ -1387,6 +1628,7 @@ def on_new_round(_data):
         return
     game_scores = gs['game_scores']
     names_dict = gs['player_names']
+    # Rotate mandatory bid seat clockwise for the next round
     next_seat = gs['start_seat'] % 6 + 1
     room['gs'] = create_game_mp(names_dict, game_scores, start_seat=next_seat)
     _process_bidding_mp(room)
@@ -1394,5 +1636,6 @@ def on_new_round(_data):
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
+    # Railway sets the PORT env var; fall back to 5050 for local development
     port = int(os.environ.get('PORT', 5050))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
