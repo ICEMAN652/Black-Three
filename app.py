@@ -1,21 +1,43 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Three of Spades (Kali Teeri) — Flask + SocketIO Multiplayer Card Game
+#
+# Architecture overview:
+#   • Flask serves the single HTML page at "/"
+#   • SocketIO handles all real-time game events (bidding, card plays, etc.)
+#   • All game state lives in the "rooms" dict (in-memory, resets on redeploy)
+#   • Each room has up to 6 seats; empty seats are filled with bots
+#   • The game phases cycle: bidding → set_trump → playing → scoring → (repeat)
+#
+# Key data structures:
+#   rooms[code]  — dict with 'seats', 'host_sid', 'status', 'gs' (game state)
+#   sid_room[sid] — maps each socket ID to its room code (for quick lookup)
+#   gs (game state) — the full per-round state dict created by create_game_mp()
+# ═══════════════════════════════════════════════════════════════════════════════
+
 from flask import Flask, render_template, request, jsonify, make_response
 from flask_socketio import SocketIO, emit, join_room as sio_join
 import os, random, string, uuid
 
 app = Flask(__name__)
+# Secret key used to sign session cookies (override via environment variable in production)
 app.secret_key = os.environ.get('SECRET_KEY', 'black3_secret_2024_kala_teen')
+# gevent async mode is required for socketio.sleep() calls inside game loops
 socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', manage_session=False)
 
-rooms = {}     # room_code -> room dict
-sid_room = {}  # socket_id -> room_code
-unique_devices = set()  # cookie UUIDs of unique visitors
-connected_sockets = 0  # live WebSocket connections
+# ── Global server state ────────────────────────────────────────────────────────
+rooms = {}            # room_code (str) → room dict
+sid_room = {}         # socket_id (str) → room_code — lets us find the room on any event
+unique_devices = set()  # set of UUID cookie strings — one per browser that's ever visited
+connected_sockets = 0   # count of currently open WebSocket connections
 
 # ─── Card Constants ───────────────────────────────────────────────────────────
-SUITS = ['s', 'h', 'd', 'c']
-RANKS = ['a', 'k', 'q', 'j', 't', '9', '8', '7', '6', '5', '4', '3']
+# Cards are stored as 2-character strings: suit letter + rank letter
+# e.g. 'sa' = Ace of Spades, 'h3' = Three of Hearts, 's3' = the special Black Three
+SUITS = ['s', 'h', 'd', 'c']   # spades, hearts, diamonds, clubs
+RANKS = ['a', 'k', 'q', 'j', 't', '9', '8', '7', '6', '5', '4', '3']  # high → low
+# RANK_ORDER: lower number = stronger card (ace=1 is strongest, 3=12 is weakest)
 RANK_ORDER = {r: i + 1 for i, r in enumerate(RANKS)}
-SUIT_NAMES = {'s': 'Spades', 'h': 'Hearts', 'd': 'Diamonds', 'c': 'Clubs'}
+SUIT_NAMES   = {'s': 'Spades', 'h': 'Hearts', 'd': 'Diamonds', 'c': 'Clubs'}
 SUIT_SYMBOLS = {'s': '♠', 'h': '♥', 'd': '♦', 'c': '♣'}
 RANK_DISPLAY = {
     'a': 'A', 'k': 'K', 'q': 'Q', 'j': 'J', 't': '10',
@@ -25,10 +47,12 @@ RANK_DISPLAY = {
 
 # ─── Card Helpers ─────────────────────────────────────────────────────────────
 def card_sort_key(card):
+    """Sort key for dealing/displaying cards: group by suit, then high-to-low rank."""
     return (SUITS.index(card[0]), RANK_ORDER[card[1]])
 
 
 def card_points(card):
+    """Return the point value of a card. Black Three = 30, Ace = 20, K/Q/J/10 = 10, rest = 0."""
     if card == 's3': return 30
     if card[1] == 'a': return 20
     if card[1] in 'kqjt': return 10
@@ -36,19 +60,29 @@ def card_points(card):
 
 
 def beats(challenger, champion, trump, first_suit):
-    if champion is None: return True
+    """
+    Return True if 'challenger' beats the current 'champion' card.
+    Priority rules:
+      1. Trump beats any non-trump.
+      2. Between two trumps, higher rank wins.
+      3. If neither is trump, a card of the led suit beats an off-suit card.
+      4. Between two led-suit cards, higher rank wins.
+      5. Off-suit non-trump never beats anything.
+    """
+    if champion is None: return True   # first card always "beats" nothing
     cT = challenger[0] == trump
     pT = champion[0] == trump
-    if cT and not pT: return True
-    if not cT and pT: return False
-    if cT and pT: return RANK_ORDER[challenger[1]] < RANK_ORDER[champion[1]]
-    if challenger[0] == first_suit and champion[0] != first_suit: return True
+    if cT and not pT: return True       # trump beats non-trump
+    if not cT and pT: return False      # non-trump loses to trump
+    if cT and pT: return RANK_ORDER[challenger[1]] < RANK_ORDER[champion[1]]  # both trump: higher wins
+    if challenger[0] == first_suit and champion[0] != first_suit: return True  # on-suit beats off-suit
     if challenger[0] == first_suit and champion[0] == first_suit:
-        return RANK_ORDER[challenger[1]] < RANK_ORDER[champion[1]]
-    return False
+        return RANK_ORDER[challenger[1]] < RANK_ORDER[champion[1]]  # both on-suit: higher wins
+    return False  # off-suit non-trump can never win
 
 
 def trick_winner_idx(cards, trump, first_suit):
+    """Return the index (in the cards list) of the winning card for a completed trick."""
     best = 0
     for i in range(1, len(cards)):
         if beats(cards[i], cards[best], trump, first_suit):
@@ -57,17 +91,34 @@ def trick_winner_idx(cards, trump, first_suit):
 
 
 def valid_cards(hand, first_suit):
-    if first_suit is None: return list(hand)
+    """
+    Return the subset of hand cards that are legal to play.
+    If the player has any card in the led suit, they must play one of those.
+    If they have none, they can play anything (including trump or discards).
+    """
+    if first_suit is None: return list(hand)   # leading: any card is fine
     same = [c for c in hand if c[0] == first_suit]
     return same if same else list(hand)
 
 
 def get_trick_play_order(leader):
+    """
+    Return the list of seat numbers in clockwise play order starting from 'leader'.
+    Seats are numbered 1-6; wraps around using modulo.
+    """
     return [(leader - 1 + i) % 6 + 1 for i in range(6)]
 
 
 # ─── AI Logic ─────────────────────────────────────────────────────────────────
 def ai_max_bid(hand):
+    """
+    Estimate the maximum bid a bot should make given its hand.
+    Starts at a base of 60 (floor for a weak hand) and adds:
+      • 45 pts per Ace, 35 per King, 25 per Queen
+      • Length bonus if the best suit has 4+ cards (suits that suit as trump)
+      • Extra 20 if holding the Black Three in the trump suit candidate
+    Returns an integer — the bot will bid up to this value.
+    """
     points = 60
     suit_count = {s: 0 for s in SUITS}
     has_black3 = False
@@ -86,6 +137,10 @@ def ai_max_bid(hand):
 
 
 def ai_choose_trump(hand):
+    """
+    Pick the best trump suit for a bot: the suit with the most cards,
+    with a tiebreaker bonus for holding the ace (+0.5) or king (+0.25) in that suit.
+    """
     suit_score = {}
     for s in SUITS:
         cnt = sum(1 for c in hand if c[0] == s)
@@ -96,6 +151,11 @@ def ai_choose_trump(hand):
 
 
 def ai_choose_partners(hand, trump):
+    """
+    Pick two partner cards the bot doesn't hold itself.
+    Priority: trump A/K first (partners who hold key trump), then off-suit aces,
+    then off-suit kings, then face cards, then anything — guaranteeing 2 unique cards.
+    """
     has = set(hand)
     priority = []
     for r in ['a', 'k']:
