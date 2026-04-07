@@ -216,6 +216,14 @@ $('btn-leave-lobby').addEventListener('click', () => {
   showScreen('setup');
 });
 
+$('btn-vote-kick-lobby').addEventListener('click', () => {
+  socket.emit('vote_kick_host', {});
+});
+
+$('btn-vote-kick-game').addEventListener('click', () => {
+  socket.emit('vote_kick_host', {});
+});
+
 function renderLobby(data) {
   $('lobby-room-code').textContent = data.room_code;
   const list = $('lobby-player-list');
@@ -244,6 +252,19 @@ function renderLobby(data) {
 
   $('btn-start-game').style.display = data.is_host ? 'inline-block' : 'none';
   $('lobby-waiting-msg').style.display = data.is_host ? 'none' : 'block';
+
+  const vkBox = $('lobby-vote-kick');
+  if (!data.is_host && (data.vote_kick_needed || 0) > 0) {
+    vkBox.classList.remove('hidden');
+    $('vk-host-name-lobby').textContent = data.host_name || 'Host';
+    $('vk-count-lobby').textContent = data.vote_kick_count || 0;
+    $('vk-needed-lobby').textContent = data.vote_kick_needed || 1;
+    const btn = $('btn-vote-kick-lobby');
+    btn.textContent = data.my_vote_cast ? 'Vote Cast ✓' : 'Vote Kick';
+    btn.disabled = !!data.my_vote_cast;
+  } else {
+    vkBox.classList.add('hidden');
+  }
 }
 
 // ── Top bar ────────────────────────────────────────────────────────────────
@@ -402,6 +423,7 @@ function render(state) {
   renderLog(state);
   renderPhasePanel(state);
   renderPartnerInfo(state);
+  renderVoteKick(state);
   updateOpponentHighlights(state);
   if (wasSetTrump && state.phase === 'playing') {
     showGameStartModal(state);
@@ -745,6 +767,21 @@ function renderPartnerInfo(s) {
     const p1c = (s.partner_1[0]==='h'||s.partner_1[0]==='d') ? '#f77' : '#ddd';
     const p2c = (s.partner_2[0]==='h'||s.partner_2[0]==='d') ? '#f77' : '#ddd';
     box.innerHTML = `<div>Partners: <strong style="color:${p1c}">${escHtml(p1d)}</strong> (${p1n}) &amp; <strong style="color:${p2c}">${escHtml(p2d)}</strong> (${p2n})</div>`;
+  } else {
+    box.classList.add('hidden');
+  }
+}
+
+function renderVoteKick(s) {
+  const box = $('game-vote-kick');
+  if (!s.is_host && (s.vote_kick_needed || 0) > 0) {
+    box.classList.remove('hidden');
+    $('vk-host-name-game').textContent = s.host_name || 'Host';
+    $('vk-count-game').textContent = s.vote_kick_count || 0;
+    $('vk-needed-game').textContent = s.vote_kick_needed || 1;
+    const btn = $('btn-vote-kick-game');
+    btn.textContent = s.my_vote_cast ? 'Vote Cast ✓' : 'Vote Kick';
+    btn.disabled = !!s.my_vote_cast;
   } else {
     box.classList.add('hidden');
   }

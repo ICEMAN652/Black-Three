@@ -354,6 +354,11 @@ def broadcast_lobby(room_code):
         {'seat': s, 'name': room['seats'][s]['name'], 'is_bot': room['seats'][s]['is_bot']}
         for s in sorted(room['seats'])
     ]
+    host_seat = room['sid_to_seat'].get(room['host_sid'])
+    host_name = room['seats'].get(host_seat, {}).get('name', 'Host')
+    non_host_humans = [s for s, p in room['seats'].items() if not p['is_bot'] and s != host_seat]
+    vote_needed = len(non_host_humans) // 2 + 1
+    vote_count = len(room.get('vote_kick_votes', set()))
     for seat, p in room['seats'].items():
         if not p['is_bot'] and p.get('sid'):
             socketio.emit('lobby_update', {
@@ -361,6 +366,10 @@ def broadcast_lobby(room_code):
                 'players': players_list,
                 'is_host': p['sid'] == room['host_sid'],
                 'my_seat': seat,
+                'vote_kick_count': vote_count,
+                'vote_kick_needed': vote_needed,
+                'my_vote_cast': seat in room.get('vote_kick_votes', set()),
+                'host_name': host_name,
             }, to=p['sid'])
 
 
@@ -779,6 +788,11 @@ def client_state_mp(gs, viewer_seat, room):
 
     viewer_sid = room['seats'][viewer_seat].get('sid')
     is_host = viewer_sid == room.get('host_sid')
+    host_seat_v = room['sid_to_seat'].get(room.get('host_sid'))
+    host_name_v = gs['player_names'].get(host_seat_v, 'Host')
+    non_host_humans_v = [s for s, pl in room['seats'].items() if not pl['is_bot'] and s != host_seat_v]
+    vote_needed_v = len(non_host_humans_v) // 2 + 1 if non_host_humans_v else 0
+    vote_count_v = len(room.get('vote_kick_votes', set()))
 
     return {
         'phase': gs['phase'],
@@ -825,6 +839,10 @@ def client_state_mp(gs, viewer_seat, room):
         'hand_counts': {str(i): len(gs['hands'].get(i, [])) for i in range(1, 7)},
         'opp_display': opp_display,
         'room_code': room['code'],
+        'vote_kick_count': vote_count_v,
+        'vote_kick_needed': vote_needed_v,
+        'my_vote_cast': viewer_seat in room.get('vote_kick_votes', set()),
+        'host_name': host_name_v,
     }
 
 
@@ -1012,6 +1030,78 @@ def on_kick_player(data):
         broadcast_lobby(room_code)
 
 
+@socketio.on('vote_kick_host')
+def on_vote_kick_host():
+    sid = request.sid
+    room_code = sid_room.get(sid)
+    if not room_code or room_code not in rooms:
+        return
+    room = rooms[room_code]
+    seat = room['sid_to_seat'].get(sid)
+    if not seat:
+        return
+    host_seat = room['sid_to_seat'].get(room['host_sid'])
+    if seat == host_seat:
+        return  # host can't vote to kick themselves
+    p = room['seats'].get(seat)
+    if not p or p.get('is_bot'):
+        return
+
+    if 'vote_kick_votes' not in room:
+        room['vote_kick_votes'] = set()
+    room['vote_kick_votes'].add(seat)
+
+    non_host_humans = [s for s, pl in room['seats'].items() if not pl['is_bot'] and s != host_seat]
+    needed = len(non_host_humans) // 2 + 1
+
+    if len(room['vote_kick_votes']) >= needed:
+        # Execute the kick
+        room['vote_kick_votes'] = set()
+        host_p = room['seats'].get(host_seat)
+        host_name = host_p.get('name', 'Host') if host_p else 'Host'
+        host_sid = room['host_sid']
+
+        if host_sid:
+            socketio.emit('kicked', {}, to=host_sid)
+            sid_room.pop(host_sid, None)
+            room['sid_to_seat'].pop(host_sid, None)
+
+        # Assign new host to first remaining human
+        new_host_sid = None
+        for s in sorted(room['seats'].keys()):
+            pl = room['seats'][s]
+            if not pl['is_bot'] and pl.get('sid') and pl['sid'] != host_sid:
+                new_host_sid = pl['sid']
+                break
+        room['host_sid'] = new_host_sid
+
+        if room.get('gs') and room['status'] == 'playing':
+            gs = room['gs']
+            if host_seat and host_p:
+                host_p['is_bot'] = True
+                host_p['human_name'] = host_name
+                host_p['name'] = f'Bot {host_seat}'
+                gs['player_names'][host_seat] = f'Bot {host_seat}'
+                gs['log'].append(f'{host_name} was vote-kicked. Bot takes over.')
+            if not any(not pl['is_bot'] for pl in room['seats'].values()):
+                del rooms[room_code]
+                return
+            broadcast_game_state(room_code)
+            _process_trick_auto_mp(room)
+        else:
+            if host_seat and host_seat in room['seats']:
+                del room['seats'][host_seat]
+            if new_host_sid:
+                broadcast_lobby(room_code)
+            else:
+                del rooms[room_code]
+    else:
+        if room.get('gs') and room['status'] == 'playing':
+            broadcast_game_state(room_code)
+        else:
+            broadcast_lobby(room_code)
+
+
 @socketio.on('create_room')
 def on_create_room(data):
     sid = request.sid
@@ -1024,6 +1114,7 @@ def on_create_room(data):
         'seats': {1: {'name': name, 'sid': sid, 'is_bot': False}},
         'sid_to_seat': {sid: 1},
         'gs': None,
+        'vote_kick_votes': set(),
     }
     sid_room[sid] = code
     sio_join(code)
@@ -1103,6 +1194,7 @@ def on_start_game(_data):
             bot_num += 1
 
     room['status'] = 'playing'
+    room['vote_kick_votes'] = set()
     names_dict = {seat: p['name'] for seat, p in room['seats'].items()}
     room['gs'] = create_game_mp(names_dict)
     _process_bidding_mp(room)

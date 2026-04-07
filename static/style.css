@@ -545,6 +545,36 @@ body {
 }
 .partner-info.hidden { display: none; }
 
+/* ── Vote Kick Box ─────────────────────────────────────────────── */
+.vote-kick-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: rgba(200,50,50,0.1);
+  border: 1px solid rgba(200,50,50,0.35);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-top: 8px;
+  font-size: 0.8rem;
+}
+.vote-kick-box.hidden { display: none; }
+.vk-label { flex: 1; color: #e09090; }
+.vk-tally { color: #aaa; white-space: nowrap; font-size: 0.75rem; }
+.btn-warning {
+  background: rgba(220,100,30,0.15);
+  border: 1px solid #dd6622;
+  color: #f4a060;
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-warning:hover { background: #dd6622; color: #fff; }
+.btn-warning:disabled { opacity: 0.5; cursor: default; }
+
 /* ── Player Hand ──────────────────────────────────────────────── */
 .player-area {
   background: rgba(0,0,0,0.3);

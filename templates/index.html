@@ -77,6 +77,11 @@
     <p id="lobby-waiting-msg" class="lobby-waiting" style="display:none">
       Waiting for host to start the game…
     </p>
+    <div id="lobby-vote-kick" class="vote-kick-box hidden">
+      <span class="vk-label">Remove host <strong id="vk-host-name-lobby"></strong>?</span>
+      <span class="vk-tally"><span id="vk-count-lobby">0</span> / <span id="vk-needed-lobby">1</span> votes</span>
+      <button id="btn-vote-kick-lobby" class="btn btn-warning btn-sm">Vote Kick</button>
+    </div>
     <div class="lobby-buttons">
       <button id="btn-start-game" class="btn btn-primary btn-lg" style="display:none">
         Start Game
@@ -265,6 +270,11 @@
       <div class="log-title">Game Log</div>
       <div id="game-log" class="game-log"></div>
       <div class="partner-info hidden" id="partner-info-box"></div>
+      <div id="game-vote-kick" class="vote-kick-box hidden">
+        <span class="vk-label">Remove host <strong id="vk-host-name-game"></strong>?</span>
+        <span class="vk-tally"><span id="vk-count-game">0</span> / <span id="vk-needed-game">1</span> votes</span>
+        <button id="btn-vote-kick-game" class="btn btn-warning btn-sm">Vote Kick</button>
+      </div>
     </div>
   </div>
 
