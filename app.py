@@ -443,6 +443,14 @@ def _process_bidding_mp(room):
         next_bid = gs['bid'] + 10
         name = gs['player_names'][player]
 
+        # Bot with a strong enough hand jumps directly to 270
+        if max_b >= 270 and gs['bid'] < 270:
+            gs['bid'] = 270
+            gs['last_bidder'] = player
+            gs['log'].append(f"{name} bids 270!")
+            _finish_bidding_mp(room)
+            return
+
         if next_bid <= max_b and next_bid <= 270:
             gs['bid'] = next_bid
             gs['last_bidder'] = player
@@ -646,11 +654,13 @@ def _calculate_scores(gs):
     }
 
     if bidder_won:
-        gs['game_scores'][bidder] += bid * 2
+        bidder_award = 1000 if bid == 270 else bid * 2
+        gs['game_scores'][bidder] += bidder_award
         if p1p: gs['game_scores'][p1p] += bid
         if p2p and p2p != p1p: gs['game_scores'][p2p] += bid
+        suffix = " — MAXIMUM BID! ───" if bid == 270 else " ───"
         gs['log'].append(
-            f"─── {gs['player_names'][bidder]}'s team wins! ({team_pts} ≥ {bid}) ───"
+            f"─── {gs['player_names'][bidder]}'s team wins! ({team_pts} ≥ {bid}){suffix}"
         )
     else:
         for pnum in range(1, 7):
@@ -1061,13 +1071,14 @@ def on_bid_action(data):
         return
 
     bid_yes = data.get('bid_yes', False)
+    jump_to_270 = data.get('jump_to_270', False)
     name = gs['player_names'][seat]
 
     if bid_yes:
-        new_bid = min(gs['bid'] + 10, 270)
+        new_bid = 270 if jump_to_270 else min(gs['bid'] + 10, 270)
         gs['bid'] = new_bid
         gs['last_bidder'] = seat
-        gs['log'].append(f"{name} bids {new_bid}.")
+        gs['log'].append(f"{name} bids 270!" if new_bid == 270 else f"{name} bids {new_bid}.")
         if new_bid == 270:
             gs['bidding_seat'] = None
             _finish_bidding_mp(room)

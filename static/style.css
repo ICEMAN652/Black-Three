@@ -246,6 +246,8 @@ body {
 .btn:active { transform: translateY(0); }
 .btn-primary { background: var(--gold); color: var(--dark); }
 .btn-danger  { background: var(--red); color: var(--white); }
+.btn-gold    { background: #fff3; border: 2px solid var(--gold); color: var(--gold); font-weight: 700; }
+.btn-gold:hover { background: var(--gold); color: var(--dark); }
 .btn-outline { background: transparent; border: 2px solid var(--gold); color: var(--gold); }
 .btn-lg { padding: 12px 32px; font-size: 1.1rem; }
 .btn-sm { padding: 5px 12px; font-size: 0.82rem; }

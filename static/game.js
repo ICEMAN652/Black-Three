@@ -283,6 +283,9 @@ $('btn-bid-yes').addEventListener('click', () => {
 $('btn-bid-no').addEventListener('click', () => {
   socket.emit('bid_action', { bid_yes: false });
 });
+$('btn-bid-270').addEventListener('click', () => {
+  socket.emit('bid_action', { bid_yes: true, jump_to_270: true });
+});
 
 // ── Trump suit selection ───────────────────────────────────────────────────
 document.querySelectorAll('.suit-btn').forEach(btn => {
@@ -642,6 +645,8 @@ function renderPhasePanel(s) {
       $('bid-next-amount').textContent = nextBid;
       $('bid-yes-label').textContent = nextBid;
       $('btn-bid-yes').disabled = s.bid >= 270;
+      // Show "Bid 270!" only when it's a meaningful jump (regular button isn't already 270)
+      $('btn-bid-270').style.display = s.bid < 260 ? '' : 'none';
     } else {
       $('panel-waiting').classList.remove('hidden');
       const bName = s.bidding_seat ? (s.player_names[s.bidding_seat] || '...') : '...';
@@ -674,17 +679,21 @@ function renderScoringPanel(s) {
 
   const headline = $('score-headline');
   if (rr.bidder_won) {
-    headline.textContent = `${rr.bidder_name}'s team wins!`;
+    headline.textContent = rr.bid === 270
+      ? `${rr.bidder_name}'s team wins — MAXIMUM BID!`
+      : `${rr.bidder_name}'s team wins!`;
     headline.style.color = '#6eff6e';
   } else {
     headline.textContent = `${rr.bidder_name}'s team fails!`;
     headline.style.color = '#ff7070';
   }
 
+  const bidderAward = rr.bidder_won ? (rr.bid === 270 ? 1000 : rr.bid * 2) : -rr.bid;
   $('score-details').innerHTML = `
     Bid: <strong>${rr.bid}</strong> &nbsp;|&nbsp;
     Team collected: <strong>${rr.team_pts}</strong> pts<br>
-    Bidder: <strong>${escHtml(rr.bidder_name)}</strong> &nbsp;|&nbsp;
+    Bidder: <strong>${escHtml(rr.bidder_name)}</strong>
+    ${rr.bid === 270 && rr.bidder_won ? '<span style="color:var(--gold);font-weight:700"> (+1000 pts!)</span>' : ''}<br>
     Partners: <strong>${escHtml(rr.partner_1_name)}</strong> &amp; <strong>${escHtml(rr.partner_2_name)}</strong>
   `;
 
