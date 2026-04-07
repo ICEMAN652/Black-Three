@@ -793,6 +793,8 @@ def client_state_mp(gs, viewer_seat, room):
         'bidding_seat': gs.get('bidding_seat'),
         'is_my_bid_turn': gs.get('bidding_seat') == viewer_seat and gs['phase'] == 'bidding',
         'mandatory_opening': gs.get('mandatory_opening', False),
+        'last_bidder_name': gs['player_names'].get(gs.get('last_bidder')) if gs.get('last_bidder') else None,
+        'is_mandatory_bid': gs['bid'] == 170 and gs.get('last_bidder') == gs.get('start_seat'),
         'is_my_trump_turn': gs.get('bidder') == viewer_seat and gs['phase'] == 'set_trump',
         'trump': gs.get('trump'),
         'trump_name': SUIT_NAMES.get(gs['trump']) if gs.get('trump') else None,

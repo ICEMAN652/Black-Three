@@ -417,8 +417,10 @@ function renderTopBar(s) {
   } else {
     rcEl.innerHTML = '';
   }
-  $('info-bid').innerHTML = `Current Bid: <strong>${s.bid}</strong>` +
-    (s.bidder_name ? ` by <strong>${escHtml(s.bidder_name)}</strong>` : '');
+  const bidWho = s.is_mandatory_bid
+    ? '<span style="color:#aaa"> (Mandatory)</span>'
+    : (s.last_bidder_name ? ` <span style="color:#aaa">(${escHtml(s.last_bidder_name)})</span>` : '');
+  $('info-bid').innerHTML = `Current Bid: <strong>${s.bid}</strong>${bidWho}`;
   $('info-trump').innerHTML = s.trump
     ? `Trump: <strong style="color:${SUIT_COLOR[s.trump]==='red'?'#f88':'#eee'}">${s.trump_symbol} ${s.trump_name}</strong>`
     : '';
