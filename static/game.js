@@ -3,6 +3,8 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let gs = null;
 let selectedTrump = null;
+let selectedP1 = null;
+let selectedP2 = null;
 let myRoomCode = null;
 let mySeat = null;
 let myName = 'Player';
@@ -267,6 +269,8 @@ $('btn-new-game-top').addEventListener('click', () => {
     socket.connect();
     gs = null;
     selectedTrump = null;
+    selectedP1 = null;
+    selectedP2 = null;
     showScreen('setup');
   }
 });
@@ -292,44 +296,52 @@ document.querySelectorAll('.suit-btn').forEach(btn => {
 function populatePartnerSelects(trump) {
   if (!gs) return;
   const myHand = new Set(gs.hand.map(h => h.card));
-  const suits = { s: '♠', h: '♥', d: '♦', c: '♣' };
-  const ranks = [
-    ['a','A'],['k','K'],['q','Q'],['j','J'],['t','10'],
-    ['9','9'],['8','8'],['7','7'],['6','6'],['5','5'],['4','4'],['3','3'],
-  ];
+  const SUIT_ORDER = ['s','h','d','c'];
+  const SUIT_SYM2 = { s:'♠', h:'♥', d:'♦', c:'♣' };
+  const SUIT_CLS = { s:'black-suit', h:'red-suit', d:'red-suit', c:'black-suit' };
+  const RANKS2 = [['a','A'],['k','K'],['q','Q'],['j','J'],['t','10'],
+                  ['9','9'],['8','8'],['7','7'],['6','6'],['5','5'],['4','4'],['3','3']];
 
-  const makeOptions = (exclude) => {
-    const opts = ['<option value="">-- Select Card --</option>'];
-    for (const s of Object.keys(suits)) {
-      for (const [r, rd] of ranks) {
-        const card = s + r;
-        if (!myHand.has(card) && card !== exclude) {
-          const color = (s === 'h' || s === 'd') ? 'color:red' : '';
-          opts.push(`<option value="${card}" style="${color}">${suits[s]}${rd}</option>`);
-        }
+  const renderPicker = (pickerId, selVal, excludeVal) => {
+    const picker = $(pickerId);
+    picker.innerHTML = '';
+    for (const suit of SUIT_ORDER) {
+      const available = RANKS2.filter(([r]) => {
+        const card = suit + r;
+        return !myHand.has(card) && card !== excludeVal;
+      });
+      if (available.length === 0) continue;
+      const row = document.createElement('div');
+      row.className = 'picker-suit-row';
+      const sym = document.createElement('span');
+      sym.className = `picker-suit-sym ${SUIT_CLS[suit]}`;
+      sym.textContent = SUIT_SYM2[suit];
+      row.appendChild(sym);
+      for (const [r, rd] of available) {
+        const card = suit + r;
+        const btn = document.createElement('button');
+        btn.className = `picker-card ${SUIT_CLS[suit]}${card === selVal ? ' selected' : ''}`;
+        btn.textContent = rd;
+        btn.addEventListener('click', () => {
+          if (pickerId === 'partner-1-picker') selectedP1 = card;
+          else selectedP2 = card;
+          populatePartnerSelects(trump);
+        });
+        row.appendChild(btn);
       }
+      picker.appendChild(row);
     }
-    return opts.join('');
   };
 
-  const sel1 = $('partner-1-select');
-  const sel2 = $('partner-2-select');
-  const cur1 = sel1.value;
-  const cur2 = sel2.value;
-  sel1.innerHTML = makeOptions(cur2);
-  sel2.innerHTML = makeOptions(cur1);
-  if (cur1) sel1.value = cur1;
-  if (cur2) sel2.value = cur2;
+  renderPicker('partner-1-picker', selectedP1, selectedP2);
+  renderPicker('partner-2-picker', selectedP2, selectedP1);
 }
-
-$('partner-1-select').addEventListener('change', () => populatePartnerSelects(selectedTrump));
-$('partner-2-select').addEventListener('change', () => populatePartnerSelects(selectedTrump));
 
 $('btn-set-trump').addEventListener('click', () => {
   $('trump-error').classList.add('hidden');
   const trump = selectedTrump;
-  const p1 = $('partner-1-select').value;
-  const p2 = $('partner-2-select').value;
+  const p1 = selectedP1;
+  const p2 = selectedP2;
   if (!trump) return showError('Please select a trump suit.');
   if (!p1 || !p2) return showError('Please select both partner cards.');
   if (p1 === p2) return showError('Partner cards must be different.');
@@ -370,8 +382,8 @@ function renderTopBar(s) {
   } else {
     rcEl.innerHTML = '';
   }
-  $('info-bid').innerHTML = `Bid: <strong>${s.bid}</strong>` +
-    (s.bidder_name && s.phase !== 'bidding' ? ` by <strong>${escHtml(s.bidder_name)}</strong>` : '');
+  $('info-bid').innerHTML = `Current Bid: <strong>${s.bid}</strong>` +
+    (s.bidder_name ? ` by <strong>${escHtml(s.bidder_name)}</strong>` : '');
   $('info-trump').innerHTML = s.trump
     ? `Trump: <strong style="color:${SUIT_COLOR[s.trump]==='red'?'#f88':'#eee'}">${s.trump_symbol} ${s.trump_name}</strong>`
     : '';
@@ -522,9 +534,16 @@ function renderPlayerHand(s) {
   const isMyTurn = s.is_my_play_turn;
   const SUIT_SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
   const RANK_D = {a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3'};
+  const SUIT_ORD = { s:0, h:1, d:2, c:3 };
+  const RANK_ORD = { a:0,k:1,q:2,j:3,t:4,9:5,8:6,7:7,6:8,5:9,4:10,3:11 };
+  const sortedHand = [...s.hand].sort((a, b) => {
+    const sd = SUIT_ORD[a.card[0]] - SUIT_ORD[b.card[0]];
+    if (sd !== 0) return sd;
+    return RANK_ORD[a.card[1]] - RANK_ORD[b.card[1]];
+  });
 
   let lastSuit = null;
-  s.hand.forEach(item => {
+  sortedHand.forEach(item => {
     if (lastSuit !== null && item.card[0] !== lastSuit) {
       const spacer = document.createElement('div');
       spacer.className = 'card-group-spacer';
@@ -594,6 +613,8 @@ function renderPhasePanel(s) {
       $('panel-set-trump').classList.remove('hidden');
       if (!selectedTrump) {
         document.querySelectorAll('.suit-btn').forEach(b => b.classList.remove('selected'));
+        selectedP1 = null;
+        selectedP2 = null;
       }
       populatePartnerSelects(selectedTrump);
     } else {
