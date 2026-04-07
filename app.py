@@ -952,6 +952,10 @@ def on_disconnect():
         p['name'] = bot_name
         gs['player_names'][seat] = bot_name
         gs['log'].append(f"{old_name} disconnected (bot takes over).")
+        # Clean up room if no humans remain
+        if not any(not pl['is_bot'] for pl in room['seats'].values()):
+            del rooms[room_code]
+            return
         _process_trick_auto_mp(room)
     else:
         del room['seats'][seat]
