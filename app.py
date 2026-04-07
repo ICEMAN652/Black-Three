@@ -9,6 +9,7 @@ socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', manage_s
 rooms = {}     # room_code -> room dict
 sid_room = {}  # socket_id -> room_code
 visit_count = 0
+connected_sockets = 0  # live WebSocket connections
 
 # ─── Card Constants ───────────────────────────────────────────────────────────
 SUITS = ['s', 'h', 'd', 'c']
@@ -836,20 +837,42 @@ def index():
 
 @app.route('/stats')
 def stats():
-    return jsonify({
+    active_players = sum(
+        sum(1 for p in r['seats'].values() if not p['is_bot'])
+        for r in rooms.values()
+    )
+    fmt = request.args.get('fmt', '')
+    data = {
+        'connected_users': connected_sockets,
         'visits': visit_count,
         'active_rooms': len(rooms),
-        'active_players': sum(
-            sum(1 for p in r['seats'].values() if not p['is_bot'])
-            for r in rooms.values()
-        ),
-    })
+        'active_players': active_players,
+    }
+    if fmt == 'json':
+        return jsonify(data)
+    return (
+        f"<html><head><title>Three of Spades – Stats</title>"
+        f"<meta http-equiv='refresh' content='10'>"
+        f"<style>body{{font-family:monospace;background:#111;color:#eee;padding:2rem}}"
+        f"h1{{color:#a855f7}}td{{padding:4px 20px 4px 0}}strong{{color:#6aacff}}</style></head>"
+        f"<body><h1>Three of Spades – Live Stats</h1>"
+        f"<table>"
+        f"<tr><td>Connected users</td><td><strong>{connected_sockets}</strong></td></tr>"
+        f"<tr><td>Total page visits</td><td><strong>{visit_count}</strong></td></tr>"
+        f"<tr><td>Active rooms</td><td><strong>{len(rooms)}</strong></td></tr>"
+        f"<tr><td>Active human players</td><td><strong>{active_players}</strong></td></tr>"
+        f"</table>"
+        f"<p style='color:#666;font-size:0.8rem'>Auto-refreshes every 10 s &nbsp;|&nbsp; "
+        f"<a href='/stats?fmt=json' style='color:#888'>JSON</a></p>"
+        f"</body></html>"
+    )
 
 
 # ─── Socket Events ────────────────────────────────────────────────────────────
 @socketio.on('connect')
 def on_connect():
-    pass
+    global connected_sockets
+    connected_sockets += 1
 
 
 @socketio.on('rejoin_room')
@@ -906,6 +929,8 @@ def on_rejoin_room(data):
 
 @socketio.on('disconnect')
 def on_disconnect():
+    global connected_sockets
+    connected_sockets = max(0, connected_sockets - 1)
     sid = request.sid
     room_code = sid_room.pop(sid, None)
     if not room_code or room_code not in rooms:
