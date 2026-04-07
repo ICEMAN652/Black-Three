@@ -373,11 +373,17 @@ function showGameStartModal(s) {
     <div class="gs-partners">Partner cards: ${cardHtml(s.partner_1)} &amp; ${cardHtml(s.partner_2)}</div>
     <div style="margin-top:8px;color:#aaa;font-size:0.85rem">${escHtml(s.bidder_name)} leads the first trick.</div>
   `;
-  $('game-start-modal').classList.remove('hidden');
+  const modal = $('game-start-modal');
+  modal.classList.remove('hidden');
+  const dismiss = () => modal.classList.add('hidden');
+  const t = setTimeout(dismiss, 5000);
+  modal.dataset.timer = t;
 }
 
 $('btn-close-game-start').addEventListener('click', () => {
-  $('game-start-modal').classList.add('hidden');
+  const modal = $('game-start-modal');
+  clearTimeout(modal.dataset.timer);
+  modal.classList.add('hidden');
 });
 
 // ── Main render ────────────────────────────────────────────────────────────
