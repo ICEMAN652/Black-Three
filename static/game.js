@@ -649,7 +649,11 @@ function renderPhasePanel(s) {
   if (s.phase === 'bidding') {
     if (s.is_my_bid_turn) {
       $('panel-bidding').classList.remove('hidden');
-      $('bid-amount').textContent = s.bid;
+      const bidWhoPanel = s.is_mandatory_bid
+        ? ' <span style="color:#aaa;font-weight:400">(Mandatory)</span>'
+        : (s.last_bidder_name ? ` <span style="color:#aaa;font-weight:400">(${escHtml(s.last_bidder_name)})</span>` : '');
+      document.querySelector('.bid-current').innerHTML =
+        `Current bid: <strong id="bid-amount">${s.bid}</strong>${bidWhoPanel}`;
 
       if (s.mandatory_opening) {
         document.querySelector('.bid-next').innerHTML =
