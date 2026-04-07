@@ -473,6 +473,16 @@ def _finish_bidding_mp(room):
     gs = room['gs']
     gs['bidding_seat'] = None
     gs['bidder'] = gs['last_bidder']
+
+    # If the mandatory 170 holder wins and is human, give them the choice to go for 270
+    if (gs['bidder'] == gs['start_seat'] and gs['bid'] == 170
+            and gs['bidder'] in get_human_seats(room)):
+        gs['bidding_seat'] = gs['bidder']
+        gs['mandatory_final_bid'] = True
+        gs['message'] = "Everyone passed! Accept 170 or go for 270?"
+        broadcast_game_state(room['code'])
+        return
+
     bidder_name = gs['player_names'][gs['bidder']]
     gs['log'].append(f"─── {bidder_name} wins the bid at {gs['bid']}! ───")
 
@@ -771,6 +781,7 @@ def client_state_mp(gs, viewer_seat, room):
         'bidder_name': gs['player_names'].get(gs['bidder']) if gs['bidder'] else None,
         'bidding_seat': gs.get('bidding_seat'),
         'is_my_bid_turn': gs.get('bidding_seat') == viewer_seat and gs['phase'] == 'bidding',
+        'mandatory_final_bid': gs.get('mandatory_final_bid', False),
         'is_my_trump_turn': gs.get('bidder') == viewer_seat and gs['phase'] == 'set_trump',
         'trump': gs.get('trump'),
         'trump_name': SUIT_NAMES.get(gs['trump']) if gs.get('trump') else None,
@@ -1068,6 +1079,32 @@ def on_bid_action(data):
     seat = room['sid_to_seat'].get(sid)
     if seat != gs.get('bidding_seat'):
         emit('game_error', {'msg': 'Not your turn to bid.'})
+        return
+
+    # Handle mandatory bidder's final choice (accept 170 or jump to 270)
+    if gs.get('mandatory_final_bid'):
+        if seat != gs.get('bidding_seat'):
+            emit('game_error', {'msg': 'Not your turn.'})
+            return
+        gs.pop('mandatory_final_bid', None)
+        gs['bidding_seat'] = None
+        name = gs['player_names'][seat]
+        if data.get('jump_to_270', False):
+            gs['bid'] = 270
+            gs['log'].append(f"{name} bids 270!")
+        else:
+            gs['log'].append(f"{name} accepts the mandatory 170.")
+        bidder_name = gs['player_names'][gs['bidder']]
+        gs['log'].append(f"─── {bidder_name} wins the bid at {gs['bid']}! ───")
+        if gs['bidder'] in get_human_seats(room):
+            gs['phase'] = 'set_trump'
+            gs['message'] = f"{bidder_name}, choose trump suit and partner cards."
+            broadcast_game_state(room['code'])
+        else:
+            gs['phase'] = 'set_trump'
+            trump = ai_choose_trump(gs['hands'][gs['bidder']])
+            p1, p2 = ai_choose_partners(gs['hands'][gs['bidder']], trump)
+            _apply_trump_partners_mp(room, trump, p1, p2, auto=True)
         return
 
     bid_yes = data.get('bid_yes', False)

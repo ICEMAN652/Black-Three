@@ -547,9 +547,10 @@ function renderLastTrick(s) {
   if (!s.last_trick) { banner.classList.add('hidden'); return; }
   banner.classList.remove('hidden');
   const lt = s.last_trick;
-  const cards = lt.cards.map(c =>
-    `<span style="color:${SUIT_COLOR[c.suit]==='red'?'#f88':'#eee'}">${escHtml(c.disp)}</span>`
-  ).join(' ');
+  const cards = lt.cards.map(c => {
+    const cls = SUIT_COLOR[c.suit] === 'red' ? 'lt-card lt-red' : 'lt-card lt-black';
+    return `<span class="${cls}">${escHtml(c.disp)}</span>`;
+  }).join(' ');
   banner.innerHTML = `Last trick won by <strong>${escHtml(lt.winner_name)}</strong>: ${cards}`;
 }
 
@@ -569,7 +570,9 @@ function renderPlayerHand(s) {
   const isMyTurn = s.is_my_play_turn;
   const SUIT_SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
   const RANK_D = {a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3'};
-  const SUIT_ORD = { s:0, h:1, d:2, c:3 };
+  const presentSuits = new Set(s.hand.map(item => item.card[0]));
+  const suitOrderArr = getSuitOrder(presentSuits);
+  const SUIT_ORD = Object.fromEntries(suitOrderArr.map((suit, i) => [suit, i]));
   const RANK_ORD = { a:0,k:1,q:2,j:3,t:4,9:5,8:6,7:7,6:8,5:9,4:10,3:11 };
   const sortedHand = [...s.hand].sort((a, b) => {
     const sd = SUIT_ORD[a.card[0]] - SUIT_ORD[b.card[0]];
@@ -620,8 +623,11 @@ function renderLog(s) {
   const lines = [...(s.log || [])].reverse();
   lines.forEach(line => {
     const div = document.createElement('div');
-    div.className = 'log-line' + (line.startsWith('─') ? ' separator' : '');
-    div.innerHTML = colorizeCards(line);
+    const isTrick = /^Trick \d+:/.test(line);
+    div.className = 'log-line' +
+      (line.startsWith('─') ? ' separator' : '') +
+      (isTrick ? ' trick-line' : '');
+    div.innerHTML = isTrick ? escHtml(line) : colorizeCards(line);
     logEl.appendChild(div);
   });
   logEl.scrollTop = 0;
@@ -640,13 +646,24 @@ function renderPhasePanel(s) {
   if (s.phase === 'bidding') {
     if (s.is_my_bid_turn) {
       $('panel-bidding').classList.remove('hidden');
-      const nextBid = s.bid + 10;
       $('bid-amount').textContent = s.bid;
-      $('bid-next-amount').textContent = nextBid;
-      $('bid-yes-label').textContent = nextBid;
-      $('btn-bid-yes').disabled = s.bid >= 270;
-      // Show "Bid 270!" only when it's a meaningful jump (regular button isn't already 270)
-      $('btn-bid-270').style.display = s.bid < 260 ? '' : 'none';
+
+      if (s.mandatory_final_bid) {
+        document.querySelector('.bid-next').innerHTML =
+          'Accept <strong>170</strong> or jump to <strong>270</strong>?';
+        $('btn-bid-yes').style.display = 'none';
+        $('btn-bid-no').textContent = 'Accept 170';
+        $('btn-bid-270').style.display = '';
+      } else {
+        const nextBid = s.bid + 10;
+        document.querySelector('.bid-next').innerHTML =
+          `Bid <strong id="bid-next-amount">${nextBid}</strong> or pass?`;
+        $('btn-bid-yes').style.display = '';
+        $('btn-bid-yes').disabled = s.bid >= 270;
+        $('bid-yes-label').textContent = nextBid;
+        $('btn-bid-no').textContent = 'Pass';
+        $('btn-bid-270').style.display = s.bid < 260 ? '' : 'none';
+      }
     } else {
       $('panel-waiting').classList.remove('hidden');
       const bName = s.bidding_seat ? (s.player_names[s.bidding_seat] || '...') : '...';
@@ -738,6 +755,27 @@ function updateOpponentHighlights(s) {
 }
 
 // ── Utility ────────────────────────────────────────────────────────────────
+// Returns the suit display order based on which suits are present in hand.
+// All 4 suits: ♠♥♦♣ (B-R-R-B). Missing a black → R-B-R. Missing a red → B-R-B.
+function getSuitOrder(present) {
+  const reds = ['h', 'd'].filter(s => present.has(s));
+  const blacks = ['s', 'c'].filter(s => present.has(s));
+  if (reds.length === 2 && blacks.length === 2) return ['s', 'h', 'd', 'c'];
+  const order = [];
+  if (reds.length >= blacks.length) {
+    // R-B-R: interleave reds around blacks
+    if (reds[0]) order.push(reds[0]);
+    if (blacks[0]) order.push(blacks[0]);
+    if (reds[1]) order.push(reds[1]);
+  } else {
+    // B-R-B: interleave blacks around reds
+    if (blacks[0]) order.push(blacks[0]);
+    if (reds[0]) order.push(reds[0]);
+    if (blacks[1]) order.push(blacks[1]);
+  }
+  return order;
+}
+
 function escHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')

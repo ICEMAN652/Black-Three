@@ -246,8 +246,8 @@ body {
 .btn:active { transform: translateY(0); }
 .btn-primary { background: var(--gold); color: var(--dark); }
 .btn-danger  { background: var(--red); color: var(--white); }
-.btn-gold    { background: #fff3; border: 2px solid var(--gold); color: var(--gold); font-weight: 700; }
-.btn-gold:hover { background: var(--gold); color: var(--dark); }
+.btn-gold    { background: rgba(168,85,247,0.15); border: 2px solid #a855f7; color: #d8b4fe; font-weight: 700; }
+.btn-gold:hover { background: #a855f7; color: #1a0533; }
 .btn-outline { background: transparent; border: 2px solid var(--gold); color: var(--gold); }
 .btn-lg { padding: 12px 32px; font-size: 1.1rem; }
 .btn-sm { padding: 5px 12px; font-size: 0.82rem; }
@@ -384,6 +384,17 @@ body {
   padding: 4px;
 }
 .last-trick-banner.hidden { display: none; }
+.lt-card {
+  display: inline-block;
+  background: #fff;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.lt-card.lt-red { color: var(--red); }
+.lt-card.lt-black { color: #111; }
 
 /* ── Phase Panels ─────────────────────────────────────────────── */
 .phase-panel { width: 100%; }
@@ -521,6 +532,7 @@ body {
 }
 .log-line { padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
 .log-line.separator { color: var(--gold); font-weight: bold; border-bottom-color: rgba(255,215,0,0.2); }
+.log-line.trick-line { color: #6aacff; font-weight: 600; }
 
 .partner-info {
   background: rgba(30,120,200,0.2);
