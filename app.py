@@ -16,7 +16,7 @@
 
 from flask import Flask, render_template, request, jsonify, make_response
 from flask_socketio import SocketIO, emit, join_room as sio_join
-import os, random, string, uuid, redis
+import os, random, string, uuid
 
 app = Flask(__name__)
 # Secret key used to sign session cookies (override via environment variable in production)
@@ -30,35 +30,42 @@ sid_room = {}         # socket_id (str) → room_code — lets us find the room 
 connected_sockets = 0   # count of currently open WebSocket connections
 
 # ── Redis (unique device tracking) ────────────────────────────────────────────
-# Try both REDIS_URL (public) and REDIS_PRIVATE_URL (internal) — Railway may inject
-# either name depending on how the addon was added.
-# NOTE: do NOT connect or ping at import time — gevent monkey patching hasn't
-# run yet at module load, so blocking socket calls here will hang gunicorn startup.
-_redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_PRIVATE_URL')
-_redis_error = None   # stores connection error string for display on /stats
-_redis = None
-if _redis_url:
-    try:
-        _redis = redis.from_url(_redis_url)
-    except Exception as e:
-        _redis = None
-        _redis_error = str(e)
+# All Redis setup is lazy — nothing runs at import time so startup is never blocked.
+# The client is created on first use; if Redis is unavailable for any reason the
+# helpers return None/no-op and the app continues normally.
+DEVICES_KEY = 'spade3:unique_devices'
+_redis_client = None   # populated on first call to _get_redis()
 
-DEVICES_KEY = 'spade3:unique_devices'  # Redis set key
+def _get_redis():
+    """Return a Redis client, creating it lazily on first call. Returns None on any error."""
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_PRIVATE_URL')
+    if not url:
+        return None
+    try:
+        import redis as _redis_module
+        _redis_client = _redis_module.from_url(url)
+    except Exception:
+        pass
+    return _redis_client
 
 def redis_add_device(device_id):
     """Add a device UUID to the persistent Redis set. No-op if Redis is unavailable."""
-    if _redis:
+    r = _get_redis()
+    if r:
         try:
-            _redis.sadd(DEVICES_KEY, device_id)
+            r.sadd(DEVICES_KEY, device_id)
         except Exception:
-            pass  # never crash the request if Redis is down
+            pass
 
 def redis_device_count():
     """Return the number of unique devices stored in Redis, or None if unavailable."""
-    if _redis:
+    r = _get_redis()
+    if r:
         try:
-            return _redis.scard(DEVICES_KEY)
+            return r.scard(DEVICES_KEY)
         except Exception:
             pass
     return None
