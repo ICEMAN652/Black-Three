@@ -30,6 +30,11 @@ sid_room = {}         # socket_id (str) → room_code — lets us find the room 
 unique_devices = set()  # set of UUID cookie strings — one per browser that's ever visited
 connected_sockets = 0   # count of currently open WebSocket connections
 
+# ── Historical counters (reset on redeploy, tracked in-memory) ───────────────
+total_rooms_created   = 0   # every time a room is created via create_room_req
+total_rounds_played   = 0   # every time a round starts (start_game + new_round_action)
+peak_concurrent_users = 0   # highest simultaneous connected-in-room count ever seen
+
 # ─── Card Constants ───────────────────────────────────────────────────────────
 # Cards are stored as 2-character strings: suit letter + rank letter
 # e.g. 'sa' = Ace of Spades, 'h3' = Three of Hearts, 's3' = the special Black Three
@@ -1087,9 +1092,15 @@ def index():
 
 @app.route('/stats')
 def stats():
+    global peak_concurrent_users
+
     # Derive connected users from sid_room (always accurate — never drifts like a counter).
     # sid_room maps socket_id → room_code; every active in-room connection has an entry.
     connected_users = len(sid_room)
+
+    # Update all-time peak for this session whenever the page is checked.
+    if connected_users > peak_concurrent_users:
+        peak_concurrent_users = connected_users
 
     # Only count a human seat as "active" if their socket is still in sid_room.
     # This prevents stale seats (connections that dropped without clean disconnect)
@@ -1101,29 +1112,57 @@ def stats():
         )
         for r in rooms.values()
     )
+
+    # Count rooms that currently have 2 or more connected human players.
+    multiplayer_rooms = sum(
+        1 for r in rooms.values()
+        if sum(
+            1 for sid, seat in r.get('sid_to_seat', {}).items()
+            if sid in sid_room and not r['seats'].get(seat, {}).get('is_bot', True)
+        ) >= 2
+    )
+
     fmt = request.args.get('fmt', '')
     data = {
         'connected_users': connected_users,
         'unique_devices': len(unique_devices),
         'active_rooms': len(rooms),
+        'multiplayer_rooms': multiplayer_rooms,
         'active_players': active_players,
+        'total_rooms_created': total_rooms_created,
+        'total_rounds_played': total_rounds_played,
+        'peak_concurrent_users': peak_concurrent_users,
     }
     if fmt == 'json':
         return jsonify(data)
     return (
         f"<html><head><title>Three of Spades – Stats</title>"
         f"<meta http-equiv='refresh' content='10'>"
-        f"<style>body{{font-family:monospace;background:#111;color:#eee;padding:2rem}}"
-        f"h1{{color:#a855f7}}td{{padding:4px 20px 4px 0}}strong{{color:#6aacff}}</style></head>"
+        f"<style>"
+        f"body{{font-family:monospace;background:#111;color:#eee;padding:2rem}}"
+        f"h1{{color:#a855f7}}"
+        f"h2{{color:#888;font-size:0.9rem;text-transform:uppercase;letter-spacing:2px;margin-top:2rem;margin-bottom:0.3rem}}"
+        f"td{{padding:4px 20px 4px 0}}"
+        f"strong{{color:#6aacff}}"
+        f".dim{{color:#555}}"
+        f"</style></head>"
         f"<body><h1>Three of Spades – Live Stats</h1>"
+        f"<h2>&#x25CF; Live</h2>"
         f"<table>"
         f"<tr><td>Connected users</td><td><strong>{connected_users}</strong></td></tr>"
-        f"<tr><td>Unique devices</td><td><strong>{len(unique_devices)}</strong></td></tr>"
-        f"<tr><td>Active rooms</td><td><strong>{len(rooms)}</strong></td></tr>"
+        f"<tr><td>Active rooms</td><td><strong>{len(rooms)}</strong>"
+        f"  <span class='dim'>({multiplayer_rooms} multiplayer)</span></td></tr>"
         f"<tr><td>Active human players</td><td><strong>{active_players}</strong></td></tr>"
         f"</table>"
-        f"<p style='color:#666;font-size:0.8rem'>Auto-refreshes every 10 s &nbsp;|&nbsp; "
-        f"<a href='/stats?fmt=json' style='color:#888'>JSON</a></p>"
+        f"<h2>&#x25B3; Historical (this session)</h2>"
+        f"<table>"
+        f"<tr><td>Rooms created</td><td><strong>{total_rooms_created}</strong></td></tr>"
+        f"<tr><td>Rounds played</td><td><strong>{total_rounds_played}</strong></td></tr>"
+        f"<tr><td>Unique devices</td><td><strong>{len(unique_devices)}</strong></td></tr>"
+        f"<tr><td>Peak concurrent users</td><td><strong>{peak_concurrent_users}</strong></td></tr>"
+        f"</table>"
+        f"<p style='color:#555;font-size:0.8rem;margin-top:1.5rem'>Auto-refreshes every 10 s &nbsp;|&nbsp; "
+        f"<a href='/stats?fmt=json' style='color:#777'>JSON</a></p>"
         f"</body></html>"
     )
 
@@ -1392,6 +1431,7 @@ def on_create_room(data):
     sid = request.sid
     name = (data.get('name') or 'Player').strip()[:20] or 'Player'
     code = generate_room_code()
+    global total_rooms_created
     rooms[code] = {
         'code': code,
         'host_sid': sid,        # sid of whoever can start the game / kick players
@@ -1401,6 +1441,7 @@ def on_create_room(data):
         'gs': None,               # no game state yet — filled by start_game
         'vote_kick_votes': set(), # set of seat numbers that have voted to kick the host
     }
+    total_rooms_created += 1
     sid_room[sid] = code
     sio_join(code)         # subscribe this socket to the SocketIO room channel
     broadcast_lobby(code)
@@ -1488,10 +1529,12 @@ def on_start_game(_data):
             room['seats'][s] = {'name': f'Bot {bot_num}', 'sid': None, 'is_bot': True}
             bot_num += 1
 
+    global total_rounds_played
     room['status'] = 'playing'
     room['vote_kick_votes'] = set()   # clear any stale votes from the lobby
     names_dict = {seat: p['name'] for seat, p in room['seats'].items()}
     room['gs'] = create_game_mp(names_dict)
+    total_rounds_played += 1
     _process_bidding_mp(room)
 
 
@@ -1648,11 +1691,13 @@ def on_new_round(_data):
     gs = room.get('gs')
     if not gs or gs['phase'] != 'scoring':
         return
+    global total_rounds_played
     game_scores = gs['game_scores']
     names_dict = gs['player_names']
     # Rotate mandatory bid seat clockwise for the next round
     next_seat = gs['start_seat'] % 6 + 1
     room['gs'] = create_game_mp(names_dict, game_scores, start_seat=next_seat)
+    total_rounds_played += 1
     _process_bidding_mp(room)
 
 
