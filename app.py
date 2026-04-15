@@ -16,7 +16,7 @@
 
 from flask import Flask, render_template, request, jsonify, make_response
 from flask_socketio import SocketIO, emit, join_room as sio_join
-import os, random, string, uuid
+import os, random, string, uuid, redis
 
 app = Flask(__name__)
 # Secret key used to sign session cookies (override via environment variable in production)
@@ -27,8 +27,31 @@ socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', manage_s
 # ── Global server state ────────────────────────────────────────────────────────
 rooms = {}            # room_code (str) → room dict
 sid_room = {}         # socket_id (str) → room_code — lets us find the room on any event
-unique_devices = set()  # set of UUID cookie strings — one per browser that's ever visited
 connected_sockets = 0   # count of currently open WebSocket connections
+
+# ── Redis (unique device tracking) ────────────────────────────────────────────
+# REDIS_URL is injected automatically by Railway when you add the Redis addon.
+# Falls back to None locally — unique device count simply shows 'N/A' without Redis.
+_redis_url = os.environ.get('REDIS_URL')
+_redis = redis.from_url(_redis_url) if _redis_url else None
+DEVICES_KEY = 'spade3:unique_devices'  # Redis set key
+
+def redis_add_device(device_id):
+    """Add a device UUID to the persistent Redis set. No-op if Redis is unavailable."""
+    if _redis:
+        try:
+            _redis.sadd(DEVICES_KEY, device_id)
+        except Exception:
+            pass  # never crash the request if Redis is down
+
+def redis_device_count():
+    """Return the number of unique devices stored in Redis, or None if unavailable."""
+    if _redis:
+        try:
+            return _redis.scard(DEVICES_KEY)
+        except Exception:
+            pass
+    return None
 
 # ── Historical counters (reset on redeploy, tracked in-memory) ───────────────
 total_rooms_created      = 0   # every time a room is created via create_room_req
@@ -1087,7 +1110,7 @@ def index():
     # and would inflate the count since they never store/return the cookie.
     ua = request.headers.get('User-Agent', '')
     if 'Mozilla' in ua:
-        unique_devices.add(device_id)
+        redis_add_device(device_id)   # persists across deploys via Redis
     return resp
 
 @app.route('/stats')
@@ -1125,6 +1148,7 @@ def stats():
         'total_rooms_created': total_rooms_created,
         'total_multiplayer_rooms': total_multiplayer_rooms,
         'total_rounds_played': total_rounds_played,
+        'unique_devices': redis_device_count(),
     }
     if fmt == 'json':
         return jsonify(data)
@@ -1147,7 +1171,13 @@ def stats():
         f"  <span class='dim'>({multiplayer_rooms} multiplayer)</span></td></tr>"
         f"<tr><td>Active human players</td><td><strong>{active_players}</strong></td></tr>"
         f"</table>"
-        f"<h2>&#x25B3; Historical (this session)</h2>"
+        f"<h2>&#x25B3; Historical (persists across deploys)</h2>"
+        f"<table>"
+        f"<tr><td>Unique devices</td><td><strong>"
+        f"{redis_device_count() if redis_device_count() is not None else '<span style=\"color:#888\">N/A — Redis not connected</span>'}"
+        f"</strong></td></tr>"
+        f"</table>"
+        f"<h2>&#x25B3; This session (resets on deploy)</h2>"
         f"<table>"
         f"<tr><td>Rooms created</td><td><strong>{total_rooms_created}</strong></td></tr>"
         f"<tr><td>Multiplayer rooms</td><td><strong>{total_multiplayer_rooms}</strong>"
