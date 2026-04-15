@@ -1191,7 +1191,7 @@ def stats():
         f"<h2>&#x25B3; Historical (persists across deploys)</h2>"
         f"<table>"
         f"<tr><td>Unique devices</td><td><strong>"
-        f"{redis_device_count() if redis_device_count() is not None else f'<span style=\"color:#f88\">N/A — {_redis_error or (\"no REDIS_URL/REDIS_PRIVATE_URL variable found\" if not _redis_url else \"connection failed\")}</span>'}"
+        f"{redis_device_count() if redis_device_count() is not None else '<span style=color:#f88>N/A</span>'}"
         f"</strong></td></tr>"
         f"</table>"
         f"<h2>&#x25B3; This session (resets on deploy)</h2>"
