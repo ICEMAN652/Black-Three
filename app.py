@@ -656,10 +656,18 @@ def _finish_bidding_mp(room):
         gs['message'] = f"{bidder_name}, choose trump suit and partner cards."
         broadcast_game_state(room['code'])
     else:
-        # Bot bidder — auto-select trump and partners, then start playing
-        gs['phase'] = 'set_trump'
+        # Bot bidder — choose trump/partners immediately, but briefly broadcast
+        # the set_trump phase so clients see the transition and trigger the popup.
+        # Without this, clients jump bidding→playing in one update and never set
+        # prevPhase = 'set_trump', so showGameStartModal never fires.
         trump = ai_choose_trump(gs['hands'][gs['bidder']])
         p1, p2 = ai_choose_partners(gs['hands'][gs['bidder']], trump)
+        gs['phase'] = 'set_trump'
+        gs['trump'] = trump       # pre-populate so the broadcast includes them
+        gs['partner_1'] = p1
+        gs['partner_2'] = p2
+        broadcast_game_state(room['code'])
+        socketio.sleep(1.5)       # short pause; clients record prevPhase = 'set_trump'
         _apply_trump_partners_mp(room, trump, p1, p2, auto=True)
 
 
@@ -1070,18 +1078,32 @@ def index():
     if not device_id:
         device_id = str(uuid.uuid4())
         resp.set_cookie('device_id', device_id, max_age=60*60*24*365, samesite='Lax')
-    unique_devices.add(device_id)   # set ignores duplicates automatically
+    # Only count real browsers — crawlers/bots don't send "Mozilla" in their User-Agent
+    # and would inflate the count since they never store/return the cookie.
+    ua = request.headers.get('User-Agent', '')
+    if 'Mozilla' in ua:
+        unique_devices.add(device_id)
     return resp
 
 @app.route('/stats')
 def stats():
+    # Derive connected users from sid_room (always accurate — never drifts like a counter).
+    # sid_room maps socket_id → room_code; every active in-room connection has an entry.
+    connected_users = len(sid_room)
+
+    # Only count a human seat as "active" if their socket is still in sid_room.
+    # This prevents stale seats (connections that dropped without clean disconnect)
+    # from inflating the count.
     active_players = sum(
-        sum(1 for p in r['seats'].values() if not p['is_bot'])
+        sum(
+            1 for sid, seat in r.get('sid_to_seat', {}).items()
+            if sid in sid_room and not r['seats'].get(seat, {}).get('is_bot', True)
+        )
         for r in rooms.values()
     )
     fmt = request.args.get('fmt', '')
     data = {
-        'connected_users': connected_sockets,
+        'connected_users': connected_users,
         'unique_devices': len(unique_devices),
         'active_rooms': len(rooms),
         'active_players': active_players,
@@ -1095,7 +1117,7 @@ def stats():
         f"h1{{color:#a855f7}}td{{padding:4px 20px 4px 0}}strong{{color:#6aacff}}</style></head>"
         f"<body><h1>Three of Spades – Live Stats</h1>"
         f"<table>"
-        f"<tr><td>Connected users</td><td><strong>{connected_sockets}</strong></td></tr>"
+        f"<tr><td>Connected users</td><td><strong>{connected_users}</strong></td></tr>"
         f"<tr><td>Unique devices</td><td><strong>{len(unique_devices)}</strong></td></tr>"
         f"<tr><td>Active rooms</td><td><strong>{len(rooms)}</strong></td></tr>"
         f"<tr><td>Active human players</td><td><strong>{active_players}</strong></td></tr>"
