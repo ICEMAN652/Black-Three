@@ -31,15 +31,15 @@ connected_sockets = 0   # count of currently open WebSocket connections
 
 # ── Redis (unique device tracking) ────────────────────────────────────────────
 # Try both REDIS_URL (public) and REDIS_PRIVATE_URL (internal) — Railway may inject
-# either name depending on how the addon was added. ssl_cert_reqs=None avoids cert
-# errors on Railway's Redis instances which use self-signed certificates.
+# either name depending on how the addon was added.
+# NOTE: do NOT connect or ping at import time — gevent monkey patching hasn't
+# run yet at module load, so blocking socket calls here will hang gunicorn startup.
 _redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_PRIVATE_URL')
 _redis_error = None   # stores connection error string for display on /stats
 _redis = None
 if _redis_url:
     try:
-        _redis = redis.from_url(_redis_url, ssl_cert_reqs=None)
-        _redis.ping()   # verify the connection is actually alive at startup
+        _redis = redis.from_url(_redis_url)
     except Exception as e:
         _redis = None
         _redis_error = str(e)
