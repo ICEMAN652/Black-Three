@@ -30,10 +30,20 @@ sid_room = {}         # socket_id (str) → room_code — lets us find the room 
 connected_sockets = 0   # count of currently open WebSocket connections
 
 # ── Redis (unique device tracking) ────────────────────────────────────────────
-# REDIS_URL is injected automatically by Railway when you add the Redis addon.
-# Falls back to None locally — unique device count simply shows 'N/A' without Redis.
-_redis_url = os.environ.get('REDIS_URL')
-_redis = redis.from_url(_redis_url) if _redis_url else None
+# Try both REDIS_URL (public) and REDIS_PRIVATE_URL (internal) — Railway may inject
+# either name depending on how the addon was added. ssl_cert_reqs=None avoids cert
+# errors on Railway's Redis instances which use self-signed certificates.
+_redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_PRIVATE_URL')
+_redis_error = None   # stores connection error string for display on /stats
+_redis = None
+if _redis_url:
+    try:
+        _redis = redis.from_url(_redis_url, ssl_cert_reqs=None)
+        _redis.ping()   # verify the connection is actually alive at startup
+    except Exception as e:
+        _redis = None
+        _redis_error = str(e)
+
 DEVICES_KEY = 'spade3:unique_devices'  # Redis set key
 
 def redis_add_device(device_id):
@@ -1174,7 +1184,7 @@ def stats():
         f"<h2>&#x25B3; Historical (persists across deploys)</h2>"
         f"<table>"
         f"<tr><td>Unique devices</td><td><strong>"
-        f"{redis_device_count() if redis_device_count() is not None else '<span style=\"color:#888\">N/A — Redis not connected</span>'}"
+        f"{redis_device_count() if redis_device_count() is not None else f'<span style=\"color:#f88\">N/A — {_redis_error or (\"no REDIS_URL/REDIS_PRIVATE_URL variable found\" if not _redis_url else \"connection failed\")}</span>'}"
         f"</strong></td></tr>"
         f"</table>"
         f"<h2>&#x25B3; This session (resets on deploy)</h2>"
