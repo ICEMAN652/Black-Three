@@ -336,7 +336,15 @@ def _bidder_lead(hand, trump, trump_in_hand, trick_num, all_played, p1c, p2c):
                 return _high(trump_in_hand)
             # All trump accounted for — fall through to point play
 
-    # Tricks 4-8 (or after clearing): point maximisation
+    # Tricks 4+: draw any remaining trump before going for points.
+    # If the bidder has regained the lead and opponents still hold trump, clear it now
+    # so later point-tricks can't be ruffed away.
+    if trump_in_hand:
+        gone = _trumps_gone(all_played, trump)
+        if gone + len(trump_in_hand) < 12:   # some trump still unaccounted for
+            return _high(trump_in_hand)
+
+    # Point maximisation — lead aces/kings of non-trump suits
     high = _best_point_card(hand, all_played, trump)
     if high:
         return high
@@ -444,6 +452,14 @@ def _ai_follow(player_num, hand, played_order, played_cards, trump,
     if same_suit:
         # Player can follow suit
         if is_bidder_team:
+            # Partner: if the bidder led this trick in the same suit as our partner card,
+            # play the partner card — this is the bidder "calling" for us to reveal.
+            if is_partner:
+                my_pc = p1c if player_num == p1_num else p2c
+                bidder_led = played_order and played_order[0] == bidder_num
+                if my_pc and my_pc in same_suit and bidder_led:
+                    return my_pc   # reveal partner card on bidder's call
+
             if winner_is_team and cur_winner != player_num:
                 # A teammate is already winning — play low to avoid wasting a good card
                 return _low(same_suit)
