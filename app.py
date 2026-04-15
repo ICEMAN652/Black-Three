@@ -31,9 +31,9 @@ unique_devices = set()  # set of UUID cookie strings — one per browser that's 
 connected_sockets = 0   # count of currently open WebSocket connections
 
 # ── Historical counters (reset on redeploy, tracked in-memory) ───────────────
-total_rooms_created   = 0   # every time a room is created via create_room_req
-total_rounds_played   = 0   # every time a round starts (start_game + new_round_action)
-peak_concurrent_users = 0   # highest simultaneous connected-in-room count ever seen
+total_rooms_created      = 0   # every time a room is created via create_room_req
+total_rounds_played      = 0   # every time a round starts (start_game + new_round_action)
+total_multiplayer_rooms  = 0   # rooms that have ever had 2+ humans (counted once per room)
 
 # ─── Card Constants ───────────────────────────────────────────────────────────
 # Cards are stored as 2-character strings: suit letter + rank letter
@@ -1092,15 +1092,9 @@ def index():
 
 @app.route('/stats')
 def stats():
-    global peak_concurrent_users
-
     # Derive connected users from sid_room (always accurate — never drifts like a counter).
     # sid_room maps socket_id → room_code; every active in-room connection has an entry.
     connected_users = len(sid_room)
-
-    # Update all-time peak for this session whenever the page is checked.
-    if connected_users > peak_concurrent_users:
-        peak_concurrent_users = connected_users
 
     # Only count a human seat as "active" if their socket is still in sid_room.
     # This prevents stale seats (connections that dropped without clean disconnect)
@@ -1125,13 +1119,12 @@ def stats():
     fmt = request.args.get('fmt', '')
     data = {
         'connected_users': connected_users,
-        'unique_devices': len(unique_devices),
         'active_rooms': len(rooms),
         'multiplayer_rooms': multiplayer_rooms,
         'active_players': active_players,
         'total_rooms_created': total_rooms_created,
+        'total_multiplayer_rooms': total_multiplayer_rooms,
         'total_rounds_played': total_rounds_played,
-        'peak_concurrent_users': peak_concurrent_users,
     }
     if fmt == 'json':
         return jsonify(data)
@@ -1157,9 +1150,9 @@ def stats():
         f"<h2>&#x25B3; Historical (this session)</h2>"
         f"<table>"
         f"<tr><td>Rooms created</td><td><strong>{total_rooms_created}</strong></td></tr>"
+        f"<tr><td>Multiplayer rooms</td><td><strong>{total_multiplayer_rooms}</strong>"
+        f"  <span class='dim'>(ever had 2+ humans)</span></td></tr>"
         f"<tr><td>Rounds played</td><td><strong>{total_rounds_played}</strong></td></tr>"
-        f"<tr><td>Unique devices</td><td><strong>{len(unique_devices)}</strong></td></tr>"
-        f"<tr><td>Peak concurrent users</td><td><strong>{peak_concurrent_users}</strong></td></tr>"
         f"</table>"
         f"<p style='color:#555;font-size:0.8rem;margin-top:1.5rem'>Auto-refreshes every 10 s &nbsp;|&nbsp; "
         f"<a href='/stats?fmt=json' style='color:#777'>JSON</a></p>"
@@ -1440,11 +1433,23 @@ def on_create_room(data):
         'sid_to_seat': {sid: 1},  # reverse map: sid -> seat number
         'gs': None,               # no game state yet — filled by start_game
         'vote_kick_votes': set(), # set of seat numbers that have voted to kick the host
+        'counted_multiplayer': False, # True once we've counted this room in total_multiplayer_rooms
     }
     total_rooms_created += 1
     sid_room[sid] = code
     sio_join(code)         # subscribe this socket to the SocketIO room channel
     broadcast_lobby(code)
+
+
+def _check_multiplayer_milestone(room):
+    """Increment total_multiplayer_rooms the first time a room reaches 2+ humans."""
+    global total_multiplayer_rooms
+    if room.get('counted_multiplayer'):
+        return
+    human_count = sum(1 for p in room['seats'].values() if not p['is_bot'])
+    if human_count >= 2:
+        room['counted_multiplayer'] = True
+        total_multiplayer_rooms += 1
 
 
 @socketio.on('join_room_req')
@@ -1489,6 +1494,7 @@ def on_join_room(data):
         if room.get('gs'):
             room['gs']['player_names'][bot_seat] = name
             room['gs']['log'].append(f"{name} joined and took over Bot seat {bot_seat}.")
+        _check_multiplayer_milestone(room)
         broadcast_game_state(code)
         return
 
@@ -1503,6 +1509,7 @@ def on_join_room(data):
     room['sid_to_seat'][sid] = next_seat
     sid_room[sid] = code
     sio_join(code)
+    _check_multiplayer_milestone(room)
     broadcast_lobby(code)
 
 
