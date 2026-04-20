@@ -518,7 +518,9 @@ body {
   gap: 6px;
   min-height: 0;
 }
+.log-header-row { display: flex; justify-content: space-between; align-items: center; }
 .log-title { font-size: 0.78rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+.log-close-btn { display: none; }
 .game-log {
   flex: 1;
   overflow-y: auto;
@@ -739,10 +741,20 @@ body {
   .suit-btn { padding: 5px 10px; font-size: 0.9rem; }
   #score-table { font-size: 0.82rem; }
 
-  /* ── Log: hidden by default on mobile, shown via toggle ── */
-  .log-area { order: 3; }
-  .log-hidden-mobile { display: none; }
-  .game-log { max-height: 150px; font-size: 0.73rem; }
+  /* ── Log: hidden by default on mobile, opens as overlay when toggled ── */
+  .log-area {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0,0,0,0.88);
+    flex-direction: column;
+    padding: 20px;
+    overflow-y: auto;
+  }
+  .log-area.log-open-mobile { display: flex; }
+  .log-close-btn { display: block; }
+  .game-log { max-height: calc(100vh - 140px); font-size: 0.78rem; }
 
   /* ── Player area: hand scrolls horizontally ── */
   .player-area { padding: 8px 10px; }

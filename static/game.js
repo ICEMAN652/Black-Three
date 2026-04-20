@@ -385,9 +385,11 @@ $('rules-modal').addEventListener('click', (e) => {
 });
 
 $('btn-toggle-log').addEventListener('click', () => {
-  const logArea = document.querySelector('.log-area');
-  logArea.classList.toggle('log-hidden-mobile');
-  $('btn-toggle-log').textContent = logArea.classList.contains('log-hidden-mobile') ? 'Log' : 'Hide Log';
+  document.querySelector('.log-area').classList.add('log-open-mobile');
+});
+
+$('btn-close-log').addEventListener('click', () => {
+  document.querySelector('.log-area').classList.remove('log-open-mobile');
 });
 
 $('btn-new-game-top').addEventListener('click', () => {

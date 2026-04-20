@@ -1490,6 +1490,8 @@ def on_disconnect():
     p['sid'] = None
     if room.get('gs') and room['status'] == 'playing':
         # Mid-game disconnect: bot takes over the seat
+        p['_disconnected_sid'] = sid   # preserve so on_rejoin_room can clean up stale mapping
+        del room['sid_to_seat'][sid]   # clear stale sid→seat entry immediately
         gs = room['gs']
         p['is_bot'] = True
         old_name = p['name']
@@ -1758,26 +1760,30 @@ def on_join_room(data):
         return
 
     if room['status'] == 'playing':
-        # Mid-game join: find the lowest-numbered bot seat to take over
-        bot_seat = next(
-            (s for s, p in sorted(room['seats'].items()) if p['is_bot']),
+        # Prefer to restore the player to their original seat if they disconnected mid-game
+        reclaim_seat = next(
+            (s for s, pl in room['seats'].items() if pl['is_bot'] and pl.get('human_name') == name),
+            None
+        )
+        bot_seat = reclaim_seat if reclaim_seat else next(
+            (s for s, pl in sorted(room['seats'].items()) if pl['is_bot']),
             None
         )
         if bot_seat is None:
             emit('join_error', {'msg': 'Game in progress and no open seats.'})
             return
-        # Swap the bot out for this human
         p = room['seats'][bot_seat]
         p['name'] = name
         p['sid'] = sid
         p['is_bot'] = False
+        p.pop('human_name', None)   # clear backup name if reclaiming original seat
         room['sid_to_seat'][sid] = bot_seat
         sid_room[sid] = code
         sio_join(code)
-        # Sync the game state player name so the log shows their real name
         if room.get('gs'):
             room['gs']['player_names'][bot_seat] = name
-            room['gs']['log'].append(f"{name} joined and took over Bot seat {bot_seat}.")
+            action = 'rejoined' if reclaim_seat else f'joined and took over Bot seat'
+            room['gs']['log'].append(f"{name} {action} {bot_seat}.")
         _check_multiplayer_milestone(room)
         broadcast_game_state(code)
         return
