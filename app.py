@@ -16,7 +16,7 @@
 
 from flask import Flask, render_template, request, jsonify, make_response
 from flask_socketio import SocketIO, emit, join_room as sio_join
-import os, random, string, uuid
+import os, random, string, uuid, time
 
 app = Flask(__name__)
 # Secret key used to sign session cookies (override via environment variable in production)
@@ -28,6 +28,12 @@ socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', manage_s
 rooms = {}            # room_code (str) → room dict
 sid_room = {}         # socket_id (str) → room_code — lets us find the room on any event
 connected_sockets = 0   # count of currently open WebSocket connections
+
+# ── Public rooms ───────────────────────────────────────────────────────────────
+# Up to 10 lobby rooms are publicly browseable. Hosts opt-in per room.
+# Rooms that exceed the 10-slot cap are queued in public_waitlist (FIFO).
+public_rooms_list = []   # room codes currently in the visible public list (max 10)
+public_waitlist   = []   # room codes waiting for a slot to open up
 
 # ── Redis (unique device tracking) ────────────────────────────────────────────
 # All Redis setup is lazy — nothing runs at import time so startup is never blocked.
@@ -507,6 +513,118 @@ def get_human_seats(room):
     return {seat for seat, p in room['seats'].items() if not p['is_bot']}
 
 
+# ── Public rooms helpers ───────────────────────────────────────────────────────
+
+def _public_room_info(code):
+    """Return a display dict for a public room, or None if it shouldn't be shown."""
+    r = rooms.get(code)
+    if not r or r['status'] != 'lobby':
+        return None
+    human_count = sum(
+        1 for p in r['seats'].values()
+        if not p['is_bot'] and not p.get('is_disconnected')
+    )
+    if human_count >= 6:
+        return None
+    # Resolve host name — host may be temporarily disconnected, so sid_to_seat won't
+    # have their SID. Fall back to scanning seats for _disconnected_sid match.
+    host_sid = r.get('host_sid')
+    host_seat = r['sid_to_seat'].get(host_sid) if host_sid else None
+    if host_seat is None and host_sid:
+        for s, p in r['seats'].items():
+            if p.get('_disconnected_sid') == host_sid:
+                host_seat = s
+                break
+    host_name = r['seats'].get(host_seat, {}).get('name', 'Unknown') if host_seat else 'Unknown'
+    return {'code': code, 'player_count': human_count, 'host_name': host_name}
+
+
+def _broadcast_public_rooms():
+    """Push the current public rooms list to every connected client."""
+    visible = [info for info in (_public_room_info(c) for c in list(public_rooms_list)) if info]
+    socketio.emit('public_rooms_update', {'rooms': visible})
+
+
+def _add_to_public(code):
+    """Add a room to the public list (or waitlist if full). No-op if already tracked."""
+    if code in public_rooms_list or code in public_waitlist:
+        return
+    # Fill any gaps caused by stale deletions before checking capacity
+    valid_count = sum(1 for c in public_rooms_list if c in rooms)
+    if valid_count < 10:
+        public_rooms_list.append(code)
+        _broadcast_public_rooms()
+    else:
+        public_waitlist.append(code)
+
+
+def _remove_from_public(code):
+    """Remove a room from the public list and promote the next waitlisted room."""
+    removed = False
+    if code in public_rooms_list:
+        public_rooms_list.remove(code)
+        removed = True
+    if code in public_waitlist:
+        public_waitlist.remove(code)
+    if removed:
+        # Promote from waitlist if a slot opened
+        while public_waitlist:
+            candidate = public_waitlist.pop(0)
+            if candidate in rooms and rooms[candidate]['status'] == 'lobby':
+                public_rooms_list.append(candidate)
+                break
+        _broadcast_public_rooms()
+
+
+def _connected_human_count(code):
+    """Return number of connected (non-disconnected) human players in a lobby room."""
+    r = rooms.get(code)
+    if not r:
+        return 0
+    return sum(1 for p in r['seats'].values() if not p['is_bot'] and not p.get('is_disconnected'))
+
+
+def _maybe_evict_empty_public_room():
+    """
+    If a 0-person public room is taking a slot that a people-having room needs,
+    evict one randomly-chosen 0-person room and promote the first waitlist room
+    that actually has people.
+
+    Only evicts when the total number of rooms (in list + waitlist) that have
+    connected players exceeds 10, meaning the 10-slot cap is the bottleneck.
+    """
+    # Count all rooms (in list OR waitlist) that have connected humans
+    rooms_with_people = [
+        c for c in (list(public_rooms_list) + list(public_waitlist))
+        if c in rooms and rooms[c]['status'] == 'lobby' and _connected_human_count(c) > 0
+    ]
+    if len(rooms_with_people) <= 10:
+        return  # no pressure — 0-person rooms can stay
+
+    # Check there's actually a waitlist room with people to promote
+    waitlist_with_people = [
+        c for c in public_waitlist
+        if c in rooms and rooms[c]['status'] == 'lobby' and _connected_human_count(c) > 0
+    ]
+    if not waitlist_with_people:
+        return
+
+    # Find 0-person rooms currently in the public list
+    empty_in_list = [c for c in public_rooms_list if _connected_human_count(c) == 0]
+    if not empty_in_list:
+        return
+
+    # Evict one at random
+    victim = random.choice(empty_in_list)
+    public_rooms_list.remove(victim)
+
+    # Promote the first waitlist room that has people
+    promoted = waitlist_with_people[0]
+    public_waitlist.remove(promoted)
+    public_rooms_list.append(promoted)
+    _broadcast_public_rooms()
+
+
 def broadcast_lobby(room_code):
     """
     Send a 'lobby_update' event to every human player currently in this room's lobby.
@@ -518,15 +636,19 @@ def broadcast_lobby(room_code):
     players_list = [
         {'seat': s, 'name': room['seats'][s]['name'], 'is_bot': room['seats'][s]['is_bot']}
         for s in sorted(room['seats'])
+        if not room['seats'][s].get('is_disconnected')
     ]
     host_seat = room['sid_to_seat'].get(room['host_sid'])
     host_name = room['seats'].get(host_seat, {}).get('name', 'Host')
     # Vote-kick: majority of non-host humans needed to remove the host
-    non_host_humans = [s for s, p in room['seats'].items() if not p['is_bot'] and s != host_seat]
+    non_host_humans = [s for s, p in room['seats'].items()
+                       if not p['is_bot'] and not p.get('is_disconnected') and s != host_seat]
     vote_needed = len(non_host_humans) // 2 + 1
     vote_count = len(room.get('vote_kick_votes', set()))
+    is_public   = room.get('is_public', False)
+    in_waitlist = room_code in public_waitlist
     for seat, p in room['seats'].items():
-        if not p['is_bot'] and p.get('sid'):
+        if not p['is_bot'] and p.get('sid') and not p.get('is_disconnected'):
             socketio.emit('lobby_update', {
                 'room_code': room_code,
                 'players': players_list,
@@ -536,7 +658,12 @@ def broadcast_lobby(room_code):
                 'vote_kick_needed': vote_needed,
                 'my_vote_cast': seat in room.get('vote_kick_votes', set()),
                 'host_name': host_name,
+                'is_public': is_public,
+                'in_waitlist': in_waitlist,
             }, to=p['sid'])
+    # Push updated public rooms list to all clients whenever a public room changes
+    if is_public:
+        _broadcast_public_rooms()
 
 
 def broadcast_game_state(room_code):
@@ -1172,6 +1299,11 @@ def stats():
         ) >= 2
     )
 
+    # Public rooms snapshot
+    pub_listed   = sum(1 for c in public_rooms_list if c in rooms and rooms[c]['status'] == 'lobby')
+    pub_playing  = sum(1 for r in rooms.values() if r.get('is_public') and r['status'] == 'playing')
+    pub_waitlist_len = len([c for c in public_waitlist if c in rooms])
+
     fmt = request.args.get('fmt', '')
     data = {
         'connected_users': connected_users,
@@ -1182,6 +1314,9 @@ def stats():
         'total_multiplayer_rooms': total_multiplayer_rooms,
         'total_rounds_played': total_rounds_played,
         'unique_devices': redis_device_count(),
+        'public_listed': pub_listed,
+        'public_playing': pub_playing,
+        'public_waitlist': pub_waitlist_len,
     }
     if fmt == 'json':
         return jsonify(data)
@@ -1194,6 +1329,7 @@ def stats():
         f"h2{{color:#888;font-size:0.9rem;text-transform:uppercase;letter-spacing:2px;margin-top:2rem;margin-bottom:0.3rem}}"
         f"td{{padding:4px 20px 4px 0}}"
         f"strong{{color:#6aacff}}"
+        f".playing{{color:#ff6b6b;font-weight:bold;font-size:1.05em}}"
         f".dim{{color:#555}}"
         f"</style></head>"
         f"<body><h1>Three of Spades – Live Stats</h1>"
@@ -1203,6 +1339,14 @@ def stats():
         f"<tr><td>Active rooms</td><td><strong>{len(rooms)}</strong>"
         f"  <span class='dim'>({multiplayer_rooms} multiplayer)</span></td></tr>"
         f"<tr><td>Active human players</td><td><strong>{active_players}</strong></td></tr>"
+        f"</table>"
+        f"<h2>&#x1F310; Public Rooms</h2>"
+        f"<table>"
+        f"<tr><td>Listed (open lobby)</td><td><strong>{pub_listed}</strong>"
+        f"  <span class='dim'>/ 10 slots</span></td></tr>"
+        f"<tr><td>&#x1F525; Currently PLAYING</td><td><span class='playing'>{pub_playing}</span>"
+        f"  <span class='dim'>(active games that started as public)</span></td></tr>"
+        f"<tr><td>On waitlist</td><td><strong>{pub_waitlist_len}</strong></td></tr>"
         f"</table>"
         f"<h2>&#x25B3; Historical (persists across deploys)</h2>"
         f"<table>"
@@ -1262,9 +1406,10 @@ def on_rejoin_room(data):
         emit('room_lost', {})
         return
 
-    # Re-associate new socket with the seat, clean up the old socket mapping
+    # Re-associate new socket with the seat, clean up the old socket mapping.
+    # For lobby disconnects, p['sid'] is None but _disconnected_sid holds the original SID.
     p = room['seats'][found_seat]
-    old_sid = p.get('sid')
+    old_sid = p.get('sid') or p.pop('_disconnected_sid', None)
     if old_sid:
         sid_room.pop(old_sid, None)
         room['sid_to_seat'].pop(old_sid, None)
@@ -1273,6 +1418,8 @@ def on_rejoin_room(data):
     p['is_bot'] = False
     p['name'] = name            # restore display name (may have been replaced by "Bot X")
     p.pop('human_name', None)   # remove the backup name stored on disconnect
+    p.pop('is_disconnected', None)
+    p.pop('disconnected_at', None)
     if room.get('gs'):
         room['gs']['player_names'][found_seat] = name   # sync game state name
     room['sid_to_seat'][sid] = found_seat
@@ -1288,6 +1435,30 @@ def on_rejoin_room(data):
         broadcast_lobby(code)
     else:
         broadcast_game_state(code)
+
+
+_LOBBY_REJOIN_GRACE = 120  # seconds a disconnected lobby player has to reconnect
+
+
+def _cleanup_stale_lobby_seats(room_code):
+    """Remove disconnected lobby seats past the reconnection window; delete the room if empty."""
+    room = rooms.get(room_code)
+    if not room or room['status'] != 'lobby':
+        return
+    now = time.time()
+    stale = [
+        s for s, p in room['seats'].items()
+        if p.get('is_disconnected') and now - p.get('disconnected_at', now) > _LOBBY_REJOIN_GRACE
+    ]
+    for s in stale:
+        old_sid = room['seats'][s].get('_disconnected_sid')
+        if old_sid:
+            sid_room.pop(old_sid, None)
+            room['sid_to_seat'].pop(old_sid, None)
+        del room['seats'][s]
+    if not room['seats']:
+        _remove_from_public(room_code)
+        del rooms[room_code]
 
 
 @socketio.on('disconnect')
@@ -1333,19 +1504,31 @@ def on_disconnect():
             return
         _process_trick_auto_mp(room)
     else:
-        # Lobby disconnect: remove the seat entirely
-        del room['seats'][seat]
-        del room['sid_to_seat'][sid]
-        if room['seats']:
-            # If the host left, promote the next available human to host
-            if room['host_sid'] == sid:
-                for remaining in room['seats'].values():
-                    if not remaining['is_bot'] and remaining.get('sid'):
-                        room['host_sid'] = remaining['sid']
-                        break
+        # Lobby disconnect: keep the seat alive so the player can reconnect quickly
+        # (mobile browsers drop the WebSocket when switching apps).
+        # The seat is marked disconnected and cleaned up after _LOBBY_REJOIN_GRACE seconds.
+        p['is_disconnected'] = True
+        p['disconnected_at'] = time.time()
+        p['_disconnected_sid'] = sid  # preserved so on_rejoin_room can restore host status
+        del room['sid_to_seat'][sid]  # old SID is no longer valid
+        # Promote the next connected human to host if the host just disconnected
+        if room['host_sid'] == sid:
+            for remaining in room['seats'].values():
+                if not remaining['is_bot'] and not remaining.get('is_disconnected') and remaining.get('sid'):
+                    room['host_sid'] = remaining['sid']
+                    break
+        # Broadcast to anyone still connected in the lobby
+        if any(not pl['is_bot'] and pl.get('sid') and not pl.get('is_disconnected')
+               for pl in room['seats'].values()):
             broadcast_lobby(room_code)
-        else:
-            del rooms[room_code]   # last person left — clean up the room
+        # If this was a public room and it now has 0 connected humans, check whether
+        # a waitlisted room with people should take the slot instead.
+        if room.get('is_public') and room_code in public_rooms_list:
+            if _connected_human_count(room_code) == 0:
+                _maybe_evict_empty_public_room()
+            else:
+                # Player count changed — push updated public list
+                _broadcast_public_rooms()
 
 
 @socketio.on('kick_player')
@@ -1397,7 +1580,7 @@ def on_kick_player(data):
 
 
 @socketio.on('vote_kick_host')
-def on_vote_kick_host():
+def on_vote_kick_host(data=None):
     """
     Non-host players can call a vote to remove the host.
     Each eligible player (non-host, non-bot, connected) can cast one vote.
@@ -1426,8 +1609,11 @@ def on_vote_kick_host():
         room['vote_kick_votes'] = set()
     room['vote_kick_votes'].add(seat)   # set prevents double-voting
 
-    # Need more than half of non-host humans (e.g. 2-of-3, 3-of-5)
-    non_host_humans = [s for s, pl in room['seats'].items() if not pl['is_bot'] and s != host_seat]
+    # Need more than half of connected non-host humans (e.g. 2-of-3, 3-of-5)
+    non_host_humans = [
+        s for s, pl in room['seats'].items()
+        if not pl['is_bot'] and not pl.get('is_disconnected') and s != host_seat
+    ]
     needed = len(non_host_humans) // 2 + 1
 
     if len(room['vote_kick_votes']) >= needed:
@@ -1470,12 +1656,40 @@ def on_vote_kick_host():
             if new_host_sid:
                 broadcast_lobby(room_code)
             else:
+                _remove_from_public(room_code)
                 del rooms[room_code]
     else:
         if room.get('gs') and room['status'] == 'playing':
             broadcast_game_state(room_code)
         else:
             broadcast_lobby(room_code)
+
+
+@socketio.on('make_room_public')
+def on_make_room_public(data):
+    """Host toggles their lobby room between public (browseable) and private."""
+    sid = request.sid
+    room_code = sid_room.get(sid)
+    if not room_code or room_code not in rooms:
+        return
+    room = rooms[room_code]
+    if room['host_sid'] != sid or room['status'] != 'lobby':
+        return
+    make_public = bool(data.get('public', True))
+    if make_public and not room.get('is_public'):
+        room['is_public'] = True
+        _add_to_public(room_code)
+    elif not make_public and room.get('is_public'):
+        room['is_public'] = False
+        _remove_from_public(room_code)
+    broadcast_lobby(room_code)
+
+
+@socketio.on('get_public_rooms')
+def on_get_public_rooms(data=None):
+    """Client requests the current public room list (e.g. on opening the browse panel)."""
+    visible = [info for info in (_public_room_info(c) for c in list(public_rooms_list)) if info]
+    emit('public_rooms_update', {'rooms': visible})
 
 
 @socketio.on('create_room')
@@ -1497,6 +1711,7 @@ def on_create_room(data):
         'gs': None,               # no game state yet — filled by start_game
         'vote_kick_votes': set(), # set of seat numbers that have voted to kick the host
         'counted_multiplayer': False, # True once we've counted this room in total_multiplayer_rooms
+        'is_public': False,       # True when host has opted in to public browsing
     }
     total_rooms_created += 1
     sid_room[sid] = code
@@ -1525,6 +1740,12 @@ def on_join_room(data):
     sid = request.sid
     code = (data.get('code') or '').strip().upper()
     name = (data.get('name') or 'Player').strip()[:20] or 'Player'
+
+    if code not in rooms:
+        emit('join_error', {'msg': 'Room not found. Check the code.'})
+        return
+
+    _cleanup_stale_lobby_seats(code)  # purge expired disconnected seats before assigning a new one
 
     if code not in rooms:
         emit('join_error', {'msg': 'Room not found. Check the code.'})
@@ -1573,6 +1794,11 @@ def on_join_room(data):
     sid_room[sid] = code
     sio_join(code)
     _check_multiplayer_milestone(room)
+    # If this was a public room and all 6 seats are now taken, free the slot
+    if room.get('is_public'):
+        human_count = sum(1 for p in room['seats'].values() if not p['is_bot'] and not p.get('is_disconnected'))
+        if human_count >= 6:
+            _remove_from_public(code)
     broadcast_lobby(code)
 
 
@@ -1592,13 +1818,14 @@ def on_start_game(_data):
         emit('game_error', {'msg': 'Only the host can start.'})
         return
 
-    # Fill every seat that has no human player with a numbered bot
+    # Fill every seat that has no human player (or a disconnected lobby player) with a bot
     bot_num = 1
     for s in range(1, 7):
-        if s not in room['seats']:
+        if s not in room['seats'] or room['seats'][s].get('is_disconnected'):
             room['seats'][s] = {'name': f'Bot {bot_num}', 'sid': None, 'is_bot': True}
             bot_num += 1
 
+    _remove_from_public(room_code)   # game started — no longer joinable via browse
     global total_rounds_played
     room['status'] = 'playing'
     room['vote_kick_votes'] = set()   # clear any stale votes from the lobby

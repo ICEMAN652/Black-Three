@@ -210,6 +210,10 @@ socket.on('game_error', (data) => {
   showError(data.msg);
 });
 
+socket.on('public_rooms_update', (data) => {
+  renderPublicRooms(data.rooms || []);
+});
+
 // ── Setup screen ───────────────────────────────────────────────────────────
 $('btn-create-room').addEventListener('click', () => {
   myName = $('player-name').value.trim() || 'Player';
@@ -239,9 +243,55 @@ $('player-name').addEventListener('keydown', e => {
   if (e.key === 'Enter') $('btn-create-room').click();
 });
 
+// ── Browse public rooms ────────────────────────────────────────────────────
+$('btn-browse-rooms').addEventListener('click', () => {
+  $('public-rooms-modal').classList.remove('hidden');
+  socket.emit('get_public_rooms', {});
+});
+
+$('btn-close-pub-modal').addEventListener('click', () => {
+  $('public-rooms-modal').classList.add('hidden');
+});
+
+$('public-rooms-modal').addEventListener('click', (e) => {
+  if (e.target === $('public-rooms-modal')) $('public-rooms-modal').classList.add('hidden');
+});
+
+function renderPublicRooms(rooms) {
+  const list = $('pub-rooms-list');
+  if (!rooms.length) {
+    list.innerHTML = '<p class="pub-empty-msg">No public rooms open right now. Create one and make it public!</p>';
+    return;
+  }
+  list.innerHTML = '';
+  rooms.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'pub-room-card';
+    card.innerHTML =
+      `<div class="pub-room-info">
+         <span class="pub-host-name">${escHtml(r.host_name)}'s room</span>
+         <span class="pub-player-count">${r.player_count}/6 players</span>
+       </div>
+       <button class="btn btn-primary btn-sm pub-join-btn" data-code="${escHtml(r.code)}">Join</button>`;
+    card.querySelector('.pub-join-btn').addEventListener('click', () => {
+      myName = $('player-name').value.trim() || 'Player';
+      $('public-rooms-modal').classList.add('hidden');
+      $('btn-join-submit').disabled = true;
+      joinLoaderStart();
+      socket.emit('join_room_req', { name: myName, code: r.code });
+    });
+    list.appendChild(card);
+  });
+}
+
 // ── Lobby screen ───────────────────────────────────────────────────────────
 $('btn-start-game').addEventListener('click', () => {
   socket.emit('start_game', {});
+});
+
+$('btn-make-public').addEventListener('click', () => {
+  const isCurrentlyPublic = $('btn-make-public').dataset.public === 'true';
+  socket.emit('make_room_public', { public: !isCurrentlyPublic });
 });
 
 $('btn-leave-lobby').addEventListener('click', () => {
@@ -287,6 +337,27 @@ function renderLobby(data) {
 
   $('btn-start-game').style.display = data.is_host ? 'inline-block' : 'none';
   $('lobby-waiting-msg').style.display = data.is_host ? 'none' : 'block';
+
+  // Public toggle — host only
+  const pubBtn = $('btn-make-public');
+  if (data.is_host) {
+    pubBtn.style.display = 'inline-block';
+    pubBtn.dataset.public = data.is_public ? 'true' : 'false';
+    if (data.is_public && data.in_waitlist) {
+      pubBtn.textContent = 'On Waitlist…';
+      pubBtn.classList.add('btn-public-waiting');
+      pubBtn.classList.remove('btn-public-on');
+    } else if (data.is_public) {
+      pubBtn.textContent = 'Listed – Make Private';
+      pubBtn.classList.add('btn-public-on');
+      pubBtn.classList.remove('btn-public-waiting');
+    } else {
+      pubBtn.textContent = 'Make Public';
+      pubBtn.classList.remove('btn-public-on', 'btn-public-waiting');
+    }
+  } else {
+    pubBtn.style.display = 'none';
+  }
 
   const vkBox = $('lobby-vote-kick');
   if (!data.is_host && (data.vote_kick_needed || 0) > 0) {

@@ -47,6 +47,7 @@
       <div class="setup-buttons">
         <button id="btn-create-room" class="btn btn-primary btn-lg">Create Room</button>
         <button id="btn-show-join" class="btn btn-secondary btn-lg">Join Room</button>
+        <button id="btn-browse-rooms" class="btn btn-browse btn-lg">Browse Rooms</button>
       </div>
       <div id="join-section" class="join-section hidden">
         <input type="text" id="join-code-input" placeholder="Room code (e.g. ABCD)" maxlength="4"
@@ -86,7 +87,24 @@
       <button id="btn-start-game" class="btn btn-primary btn-lg" style="display:none">
         Start Game
       </button>
+      <button id="btn-make-public" class="btn btn-public-toggle" style="display:none">
+        Make Public
+      </button>
       <button id="btn-leave-lobby" class="btn btn-danger">Leave</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════  PUBLIC ROOMS MODAL  ═══════════════════ -->
+<div id="public-rooms-modal" class="pub-modal hidden">
+  <div class="pub-modal-inner">
+    <div class="pub-modal-header">
+      <h2>Browse Public Rooms</h2>
+      <button id="btn-close-pub-modal" class="rules-close-btn">&times;</button>
+    </div>
+    <p class="pub-modal-hint">Join a lobby instantly — no code needed.</p>
+    <div id="pub-rooms-list" class="pub-rooms-list">
+      <p class="pub-empty-msg">No public rooms open right now. Create one and make it public!</p>
     </div>
   </div>
 </div>
