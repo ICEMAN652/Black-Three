@@ -2027,6 +2027,8 @@ def on_vote_kick_host(data=None):
             if not any(not pl['is_bot'] for pl in room['seats'].values()):
                 del rooms[room_code]
                 return
+            if room.get('spectators') and not room.get('is_public') and not room.get('pending_seat_offer'):
+                _start_seat_offer(room, room_code, host_seat, host_name)
             broadcast_game_state(room_code)
             _process_trick_auto_mp(room)
         else:
