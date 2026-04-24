@@ -861,7 +861,20 @@ body {
 .btn-spectate:hover { background: rgba(168,85,247,0.3); border-color: #a855f7; }
 .btn-spectate:disabled { opacity: 0.45; cursor: default; }
 
-/* ── Spectator banner in player area ───────────────────────────────────────── */
+/* ── Replace Bot button (top bar, host only) ───────────────────────────────── */
+.btn-replace-bot {
+  background: rgba(250,204,21,0.15);
+  border: 1px solid rgba(250,204,21,0.5);
+  color: #fde68a;
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-replace-bot:hover { background: rgba(250,204,21,0.3); border-color: #facc15; }
+
+/* ── Spectator banner in player area / lobby ────────────────────────────────── */
 .spectator-banner {
   display: inline-block;
   padding: 6px 18px;
@@ -871,6 +884,11 @@ body {
   color: #d8b4fe;
   font-size: 0.9rem;
   letter-spacing: 0.05em;
+}
+#lobby-spectator-banner {
+  display: block;
+  text-align: center;
+  margin-bottom: 10px;
 }
 
 /* ── Seat-offer modals ──────────────────────────────────────────────────────── */

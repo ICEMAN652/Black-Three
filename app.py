@@ -688,6 +688,21 @@ def broadcast_lobby(room_code):
                 'is_public': is_public,
                 'in_waitlist': in_waitlist,
             }, to=p['sid'])
+    # Also send lobby view to any spectators already watching this lobby
+    for spec_sid in list(room.get('spectators', {}).keys()):
+        socketio.emit('lobby_update', {
+            'room_code': room_code,
+            'players': players_list,
+            'is_host': False,
+            'my_seat': None,
+            'is_spectator': True,
+            'vote_kick_count': 0,
+            'vote_kick_needed': 0,
+            'my_vote_cast': False,
+            'host_name': host_name,
+            'is_public': is_public,
+            'in_waitlist': in_waitlist,
+        }, to=spec_sid)
     # Push updated public rooms list to all clients whenever a public room changes
     if is_public:
         _broadcast_public_rooms()
@@ -747,6 +762,10 @@ def spectator_state_mp(gs, room, viewer_sid):
     p2_revealed = gs.get('partner_2_revealed', False)
     spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
                  for v in room.get('spectators', {}).values()]
+    is_host_spec = viewer_sid == room.get('host_sid')
+    has_bots_spec = any(p['is_bot'] for p in room['seats'].values())
+    can_replace_bot_spec = (is_host_spec and has_bots_spec and bool(room.get('spectators'))
+                            and not room.get('pending_seat_offer'))
 
     return {
         'phase': gs['phase'],
@@ -798,6 +817,7 @@ def spectator_state_mp(gs, room, viewer_sid):
         'vote_kick_count': 0,
         'vote_kick_needed': 0,
         'my_vote_cast': False,
+        'can_replace_bot': can_replace_bot_spec,
     }
 
 
@@ -1338,6 +1358,9 @@ def client_state_mp(gs, viewer_seat, room):
     non_host_humans_v = [s for s, pl in room['seats'].items() if not pl['is_bot'] and s != host_seat_v]
     vote_needed_v = len(non_host_humans_v) // 2 + 1 if non_host_humans_v else 0
     vote_count_v = len(room.get('vote_kick_votes', set()))
+    has_bots_v = any(p['is_bot'] for p in room['seats'].values())
+    can_replace_bot = (is_host and has_bots_v and bool(room.get('spectators'))
+                       and not room.get('pending_seat_offer'))
 
     return {
         'phase': gs['phase'],
@@ -1389,6 +1412,7 @@ def client_state_mp(gs, viewer_seat, room):
         'my_vote_cast': viewer_seat in room.get('vote_kick_votes', set()),
         'host_name': host_name_v,
         'spectators': [{'name': v['name']} for v in room.get('spectators', {}).values()],
+        'can_replace_bot': can_replace_bot,
     }
 
 
@@ -1959,6 +1983,50 @@ def on_spectator_seat_response(data):
             socketio.start_background_task(_host_offer_timer, room_code, new_seq)
 
 
+@socketio.on('host_replace_bot')
+def on_host_replace_bot():
+    """Host manually triggers a seat offer to replace a bot with a waiting spectator."""
+    sid = request.sid
+    room_code = sid_room.get(sid)
+    if not room_code or room_code not in rooms:
+        return
+    room = rooms[room_code]
+    if room.get('host_sid') != sid or room['status'] != 'playing':
+        return
+    if room.get('pending_seat_offer'):
+        return
+    spectators = room.get('spectators', {})
+    if not spectators:
+        return
+    bot_seat = next((s for s, p in sorted(room['seats'].items()) if p['is_bot']), None)
+    if bot_seat is None:
+        return
+    bot_name = room['seats'][bot_seat]['name']
+    room.setdefault('seat_offer_seq', 0)
+    room['pending_seat_offer'] = {
+        'seat': bot_seat,
+        'player_name': bot_name,
+        'tried': set(),
+        'state': 'host_picking',
+        'current_spec_sid': None,
+        'current_spec_id': None,
+    }
+    if len(spectators) == 1:
+        # Single spectator: skip host-pick modal, offer directly
+        spec_sid, spec_data = next(iter(spectators.items()))
+        _offer_to_spectator(room, room_code, spec_sid, spec_data['spec_id'])
+    else:
+        # Multiple spectators: show host-pick modal
+        room['seat_offer_seq'] += 1
+        seq = room['seat_offer_seq']
+        spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
+                     for v in spectators.values()]
+        socketio.emit('host_seat_offer', {
+            'seat': bot_seat, 'player_name': bot_name, 'spectators': spec_list,
+        }, to=sid)
+        socketio.start_background_task(_host_offer_timer, room_code, seq)
+
+
 @socketio.on('vote_kick_host')
 def on_vote_kick_host(data=None):
     """
@@ -2155,11 +2223,8 @@ def on_join_room(data):
         emit('join_error', {'msg': 'Public rooms cannot be spectated.'})
         return
 
-    # Explicit spectate request: only valid for in-progress games
+    # Explicit spectate request: allowed in both lobby and in-progress games
     if wants_spectate:
-        if room['status'] != 'playing':
-            emit('join_error', {'msg': "Can't spectate a lobby — join as a player instead."})
-            return
         if sid in room.get('spectators', {}):
             if room.get('gs'):
                 emit('game_state', spectator_state_mp(room['gs'], room, sid))
@@ -2176,6 +2241,9 @@ def on_join_room(data):
         emit('joined_as_spectator', {'name': name, 'room_code': code})
         if room.get('gs'):
             emit('game_state', spectator_state_mp(room['gs'], room, sid))
+        else:
+            # Lobby: send them the current lobby state so they see the waiting room
+            broadcast_lobby(code)
         spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
                      for v in room['spectators'].values()]
         socketio.emit('spectator_list_update', {'spectators': spec_list}, to=code)
@@ -2236,7 +2304,7 @@ def on_join_room(data):
     occupied = {s for s, p in room['seats'].items() if not p.get('is_disconnected')}
     next_seat = next((s for s in range(1, 7) if s not in occupied), None)
     if next_seat is None:
-        emit('join_error', {'msg': 'Room is full (6 players).'})
+        emit('join_error', {'msg': 'Room is full — click the Spectate button to watch.'})
         return
 
     # If this seat was held by a disconnected player, evict them before assigning

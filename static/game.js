@@ -165,9 +165,10 @@ socket.on('disconnect', () => {
 
 socket.on('lobby_update', (data) => {
   // Server sends this when the lobby roster changes; renders lobby and switches screen
+  // Also sent to spectators watching a lobby (data.is_spectator === true)
   joinLoaderStop();
   myRoomCode = data.room_code;
-  mySeat = data.my_seat;
+  mySeat = data.my_seat;   // null for spectators
   renderLobby(data);
   showScreen('lobby');
 });
@@ -419,6 +420,19 @@ function renderLobby(data) {
     list.appendChild(li);
   }
 
+  // Spectator watching lobby: show banner, hide interactive controls
+  const lobbySpecBanner = $('lobby-spectator-banner');
+  if (data.is_spectator) {
+    lobbySpecBanner.classList.remove('hidden');
+    $('btn-start-game').style.display = 'none';
+    $('btn-leave-lobby').style.display = 'none';
+    $('lobby-waiting-msg').style.display = 'none';
+    $('btn-make-public').style.display = 'none';
+    $('lobby-vote-kick').classList.add('hidden');
+    return;
+  }
+  lobbySpecBanner.classList.add('hidden');
+  $('btn-leave-lobby').style.display = 'inline-block';
   $('btn-start-game').style.display = data.is_host ? 'inline-block' : 'none';
   $('lobby-waiting-msg').style.display = data.is_host ? 'none' : 'block';
 
@@ -474,6 +488,10 @@ $('btn-toggle-log').addEventListener('click', () => {
 
 $('btn-close-log').addEventListener('click', () => {
   document.querySelector('.log-area').classList.remove('log-open-mobile');
+});
+
+$('btn-replace-bot').addEventListener('click', () => {
+  socket.emit('host_replace_bot');
 });
 
 $('btn-new-game-top').addEventListener('click', () => {
@@ -682,6 +700,14 @@ function renderTopBar(s) {
     pEl.innerHTML = '';
   }
   updateSpectatorButton(s.spectators || []);
+
+  // Show Replace Bot button only for host when bots+spectators present and no active offer
+  const replaceBotBtn = $('btn-replace-bot');
+  if (s.can_replace_bot) {
+    replaceBotBtn.classList.remove('hidden');
+  } else {
+    replaceBotBtn.classList.add('hidden');
+  }
 }
 
 // ── Spectator count button ─────────────────────────────────────────────────
