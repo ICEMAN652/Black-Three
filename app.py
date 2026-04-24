@@ -535,7 +535,10 @@ def _public_room_info(code):
             if p.get('_disconnected_sid') == host_sid:
                 host_seat = s
                 break
-    host_name = r['seats'].get(host_seat, {}).get('name', 'Unknown') if host_seat else 'Unknown'
+    if human_count == 0:
+        host_name = "Bot's room"
+    else:
+        host_name = r['seats'].get(host_seat, {}).get('name', 'Unknown') if host_seat else 'Unknown'
     return {'code': code, 'player_count': human_count, 'host_name': host_name}
 
 
@@ -666,11 +669,118 @@ def broadcast_lobby(room_code):
         _broadcast_public_rooms()
 
 
+def spectator_state_mp(gs, room, viewer_sid):
+    """Build the game-state payload for a spectator: same public info as a player
+    but no hand, no action flags, my_seat=None, is_spectator=True."""
+    trick_display = [{
+        'player_num': pnum,
+        'player_name': gs['player_names'][pnum],
+        'card': card,
+        'card_disp': SUIT_SYMBOLS[card[0]] + RANK_DISPLAY[card[1]],
+        'suit': card[0],
+    } for pnum, card in zip(gs['trick_played_by'], gs['trick_cards'])]
+
+    pos = len(gs['trick_cards'])
+    current_player = None
+    if gs['phase'] == 'playing' and pos < 6:
+        order = gs.get('trick_play_order', [])
+        if order:
+            current_player = order[pos]
+
+    p1_disp = (SUIT_SYMBOLS[gs['partner_1'][0]] + RANK_DISPLAY[gs['partner_1'][1]]
+               if gs.get('partner_1') else None)
+    p2_disp = (SUIT_SYMBOLS[gs['partner_2'][0]] + RANK_DISPLAY[gs['partner_2'][1]]
+               if gs.get('partner_2') else None)
+
+    round_result = None
+    if gs.get('round_result'):
+        rr = gs['round_result']
+        round_result = {
+            'bidder_name': rr['bidder_name'],
+            'bid': rr['bid'],
+            'team_pts': rr['team_pts'],
+            'bidder_won': rr['bidder_won'],
+            'partner_1_name': gs['player_names'].get(rr['partner_1_player'], '?'),
+            'partner_2_name': gs['player_names'].get(rr['partner_2_player'], '?'),
+            'player_pts': {gs['player_names'][p]: v for p, v in rr['player_pts'].items()},
+        }
+
+    last_trick = None
+    if gs.get('last_trick_info'):
+        lt = gs['last_trick_info']
+        last_trick = {
+            'winner_name': lt['winner_name'],
+            'cards': [{'player_name': gs['player_names'][lt['order'][i]],
+                       'disp': SUIT_SYMBOLS[c[0]] + RANK_DISPLAY[c[1]], 'suit': c[0]}
+                      for i, c in enumerate(lt['cards'])],
+        }
+
+    first_suit = gs.get('first_suit')
+    seat_types = {s: p['is_bot'] for s, p in room['seats'].items()}
+    host_seat_v = room['sid_to_seat'].get(room.get('host_sid'))
+    host_name_v = gs['player_names'].get(host_seat_v, 'Host')
+    p1_revealed = gs.get('partner_1_revealed', False)
+    p2_revealed = gs.get('partner_2_revealed', False)
+    spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
+                 for v in room.get('spectators', {}).values()]
+
+    return {
+        'phase': gs['phase'],
+        'my_seat': None,
+        'is_spectator': True,
+        'is_host': viewer_sid == room.get('host_sid'),
+        'player_names': {str(k): v for k, v in gs['player_names'].items()},
+        'seat_types': {str(k): v for k, v in seat_types.items()},
+        'hand': [],
+        'bid': gs['bid'],
+        'bidder': gs['bidder'],
+        'bidder_name': gs['player_names'].get(gs['bidder']) if gs['bidder'] else None,
+        'bidding_seat': gs.get('bidding_seat'),
+        'is_my_bid_turn': False,
+        'mandatory_opening': gs.get('mandatory_opening', False),
+        'last_bidder_name': gs['player_names'].get(gs.get('last_bidder')) if gs.get('last_bidder') else None,
+        'is_mandatory_bid': gs['bid'] == 170 and gs.get('last_bidder') == gs.get('start_seat'),
+        'is_my_trump_turn': False,
+        'trump': gs.get('trump'),
+        'trump_name': SUIT_NAMES.get(gs['trump']) if gs.get('trump') else None,
+        'trump_symbol': SUIT_SYMBOLS.get(gs['trump']) if gs.get('trump') else None,
+        'partner_1': gs.get('partner_1'),
+        'partner_2': gs.get('partner_2'),
+        'partner_1_disp': p1_disp,
+        'partner_2_disp': p2_disp,
+        'partner_1_revealed': p1_revealed,
+        'partner_2_revealed': p2_revealed,
+        'partner_1_player': gs.get('partner_1_player') if p1_revealed else None,
+        'partner_2_player': gs.get('partner_2_player') if p2_revealed else None,
+        'trick_num': gs['trick_num'],
+        'trick_display': trick_display,
+        'current_player': current_player,
+        'is_my_play_turn': False,
+        'trick_leader': gs.get('trick_leader'),
+        'first_suit': first_suit,
+        'first_suit_name': SUIT_NAMES.get(first_suit) if first_suit else None,
+        'passed': {str(k): v for k, v in gs['passed'].items()},
+        'pass_count': gs['pass_count'],
+        'message': gs.get('message', ''),
+        'log': gs['log'][-20:],
+        'round_result': round_result,
+        'game_scores': {gs['player_names'][p]: v for p, v in gs['game_scores'].items()},
+        'last_trick': last_trick,
+        'hand_counts': {str(i): len(gs['hands'].get(i, [])) for i in range(1, 7)},
+        'opp_display': [1, 2, 3, 4, 5, 6],
+        'room_code': room['code'],
+        'spectators': spec_list,
+        'host_name': host_name_v,
+        'vote_kick_count': 0,
+        'vote_kick_needed': 0,
+        'my_vote_cast': False,
+    }
+
+
 def broadcast_game_state(room_code):
     """
     Send each human player their own personalised 'game_state' snapshot.
-    Each player sees different data (e.g. only they see their own hand, partner
-    secrecy is filtered per-viewer). Bots are skipped — they don't have sockets.
+    Also sends a spectator-view snapshot to all spectators in the room.
     """
     room = rooms[room_code]
     gs = room.get('gs')
@@ -679,6 +789,8 @@ def broadcast_game_state(room_code):
     for seat, p in room['seats'].items():
         if not p['is_bot'] and p.get('sid'):
             socketio.emit('game_state', client_state_mp(gs, seat, room), to=p['sid'])
+    for sid in list(room.get('spectators', {}).keys()):
+        socketio.emit('game_state', spectator_state_mp(gs, room, sid), to=sid)
 
 
 # ─── Game State ───────────────────────────────────────────────────────────────
@@ -1437,6 +1549,10 @@ def on_rejoin_room(data):
 
     sio_join(code)   # re-subscribe to the SocketIO room for broadcasts
 
+    # Always validate host after a reconnect — stale host_sid can occur when
+    # everyone disconnected simultaneously and the host was never re-assigned.
+    _ensure_valid_host(room)
+
     if room['status'] == 'lobby':
         broadcast_lobby(code)
     else:
@@ -1444,6 +1560,19 @@ def on_rejoin_room(data):
 
 
 _LOBBY_REJOIN_GRACE = 120  # seconds a disconnected lobby player has to reconnect
+
+
+def _ensure_valid_host(room):
+    """Fix a stale or missing host_sid by assigning the lowest-seated connected human.
+    Called after any join/rejoin/cleanup so there is always a live host when humans are present."""
+    if room.get('host_sid') and room['host_sid'] in sid_room:
+        return  # current host is still connected — nothing to do
+    for s in sorted(room['seats'].keys()):
+        p = room['seats'][s]
+        if not p['is_bot'] and p.get('sid') and p['sid'] in sid_room:
+            room['host_sid'] = p['sid']
+            return
+    room['host_sid'] = None  # no connected humans at all
 
 
 def _cleanup_stale_lobby_seats(room_code):
@@ -1465,6 +1594,8 @@ def _cleanup_stale_lobby_seats(room_code):
     if not room['seats']:
         _remove_from_public(room_code)
         del rooms[room_code]
+        return
+    _ensure_valid_host(room)  # host seat may have just been purged
 
 
 @socketio.on('disconnect')
@@ -1781,7 +1912,26 @@ def on_join_room(data):
             None
         )
         if bot_seat is None:
-            emit('join_error', {'msg': 'Game in progress and no open seats.'})
+            # No open seat — join as spectator instead
+            if sid in room.get('spectators', {}):
+                if room.get('gs'):
+                    emit('game_state', spectator_state_mp(room['gs'], room, sid))
+                return
+            room.setdefault('spectators', {})
+            room.setdefault('spec_id_counter', 0)
+            room.setdefault('spec_id_to_sid', {})
+            room['spec_id_counter'] += 1
+            spec_id = room['spec_id_counter']
+            room['spectators'][sid] = {'name': name, 'spec_id': spec_id}
+            room['spec_id_to_sid'][spec_id] = sid
+            sid_room[sid] = code
+            sio_join(code)
+            emit('joined_as_spectator', {'name': name, 'room_code': code})
+            if room.get('gs'):
+                emit('game_state', spectator_state_mp(room['gs'], room, sid))
+            spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
+                         for v in room['spectators'].values()]
+            socketio.emit('spectator_list_update', {'spectators': spec_list}, to=code)
             return
         p = room['seats'][bot_seat]
         p['name'] = name
@@ -1791,6 +1941,7 @@ def on_join_room(data):
         room['sid_to_seat'][sid] = bot_seat
         sid_room[sid] = code
         sio_join(code)
+        _ensure_valid_host(room)
         if room.get('gs'):
             room['gs']['player_names'][bot_seat] = name
             action = 'rejoined' if reclaim_seat else f'joined and took over Bot seat'
@@ -1810,6 +1961,8 @@ def on_join_room(data):
     room['sid_to_seat'][sid] = next_seat
     sid_room[sid] = code
     sio_join(code)
+    # If host_sid is stale (e.g. everyone left and this is the first person back), claim host
+    _ensure_valid_host(room)
     _check_multiplayer_milestone(room)
     # If this was a public room and all 6 seats are now taken, free the slot
     if room.get('is_public'):
