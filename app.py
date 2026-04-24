@@ -2230,12 +2230,22 @@ def on_join_room(data):
         broadcast_game_state(code)
         return
 
-    # Normal lobby join: assign the next available seat number
-    occupied = set(room['seats'].keys())
+    # Normal lobby join: assign the next available seat number.
+    # Disconnected seats (within grace period) are NOT counted as occupied —
+    # they only block a *new* join if all 6 seats have active players.
+    occupied = {s for s, p in room['seats'].items() if not p.get('is_disconnected')}
     next_seat = next((s for s in range(1, 7) if s not in occupied), None)
     if next_seat is None:
         emit('join_error', {'msg': 'Room is full (6 players).'})
         return
+
+    # If this seat was held by a disconnected player, evict them before assigning
+    if next_seat in room['seats']:
+        old_sid = room['seats'][next_seat].get('_disconnected_sid')
+        if old_sid:
+            sid_room.pop(old_sid, None)
+            room['sid_to_seat'].pop(old_sid, None)
+        del room['seats'][next_seat]
 
     room['seats'][next_seat] = {'name': name, 'sid': sid, 'is_bot': False}
     room['sid_to_seat'][sid] = next_seat
