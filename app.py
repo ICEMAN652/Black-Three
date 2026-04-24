@@ -732,6 +732,8 @@ def create_game_mp(names_dict, game_scores=None, start_seat=1):
     gs['opening_done'] = False          # guard: opening choice has NOT been offered yet
     gs['partner_1_revealed'] = False    # partner cards start secret until played
     gs['partner_2_revealed'] = False
+    gs['timer_seat'] = None             # seat currently waiting for action (for client countdown)
+    gs['timer_started_ms'] = None       # Unix timestamp ms when the current turn timer started
     return gs
 
 
@@ -1266,10 +1268,14 @@ def index():
     if not device_id:
         device_id = str(uuid.uuid4())
         resp.set_cookie('device_id', device_id, max_age=60*60*24*365, samesite='Lax')
-    # Only count real browsers — crawlers/bots don't send "Mozilla" in their User-Agent
-    # and would inflate the count since they never store/return the cookie.
+    # Only count real browsers. Crawlers (Googlebot, Bingbot, etc.) include "Mozilla"
+    # but also "bot"/"spider"/"crawler", and never store cookies so each visit inflates the count.
     ua = request.headers.get('User-Agent', '')
-    if 'Mozilla' in ua:
+    ua_lower = ua.lower()
+    is_real_browser = 'mozilla' in ua_lower and not any(
+        kw in ua_lower for kw in ('bot', 'spider', 'crawler', 'headless', 'python', 'curl', 'wget', 'scraper')
+    )
+    if is_real_browser:
         redis_add_device(device_id)   # persists across deploys via Redis
     return resp
 
@@ -1714,6 +1720,11 @@ def on_create_room(data):
         'vote_kick_votes': set(), # set of seat numbers that have voted to kick the host
         'counted_multiplayer': False, # True once we've counted this room in total_multiplayer_rooms
         'is_public': False,       # True when host has opted in to public browsing
+        'spectators': {},         # {sid: {'name': str, 'spec_id': int}}
+        'spec_id_counter': 0,     # monotonic counter for stable spectator IDs
+        'spec_id_to_sid': {},     # spec_id -> sid reverse map (for kick/pick)
+        'seat_offer_seq': 0,      # incremented each time a seat is offered/filled/expired
+        'turn_seq': 0,            # incremented each time a human turn timer starts or player acts
     }
     total_rooms_created += 1
     sid_room[sid] = code
