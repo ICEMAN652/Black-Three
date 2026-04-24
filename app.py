@@ -764,8 +764,7 @@ def spectator_state_mp(gs, room, viewer_sid):
                  for v in room.get('spectators', {}).values()]
     is_host_spec = viewer_sid == room.get('host_sid')
     has_bots_spec = any(p['is_bot'] for p in room['seats'].values())
-    can_replace_bot_spec = (is_host_spec and has_bots_spec and bool(room.get('spectators'))
-                            and not room.get('pending_seat_offer'))
+    can_replace_bot_spec = is_host_spec and has_bots_spec and not room.get('pending_seat_offer')
 
     return {
         'phase': gs['phase'],
@@ -1359,8 +1358,7 @@ def client_state_mp(gs, viewer_seat, room):
     vote_needed_v = len(non_host_humans_v) // 2 + 1 if non_host_humans_v else 0
     vote_count_v = len(room.get('vote_kick_votes', set()))
     has_bots_v = any(p['is_bot'] for p in room['seats'].values())
-    can_replace_bot = (is_host and has_bots_v and bool(room.get('spectators'))
-                       and not room.get('pending_seat_offer'))
+    can_replace_bot = is_host and has_bots_v and not room.get('pending_seat_offer')
 
     return {
         'phase': gs['phase'],
@@ -1997,6 +1995,7 @@ def on_host_replace_bot():
         return
     spectators = room.get('spectators', {})
     if not spectators:
+        emit('game_error', {'msg': 'No spectators watching right now.'})
         return
     bot_seat = next((s for s, p in sorted(room['seats'].items()) if p['is_bot']), None)
     if bot_seat is None:
