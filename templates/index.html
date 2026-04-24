@@ -52,7 +52,10 @@
       <div id="join-section" class="join-section hidden">
         <input type="text" id="join-code-input" placeholder="Room code (e.g. ABCD)" maxlength="4"
                style="text-transform:uppercase;letter-spacing:0.15em" />
-        <button id="btn-join-submit" class="btn btn-primary">Join</button>
+        <div class="join-btn-row">
+          <button id="btn-join-submit" class="btn btn-primary">Join</button>
+          <button id="btn-spectate-submit" class="btn btn-spectate">👁 Spectate</button>
+        </div>
         <div id="join-loader" class="join-loader hidden">
           <div class="loader-track"><div id="join-loader-fill" class="loader-fill"></div></div>
           <p class="loader-text">Joining room…</p>
@@ -308,6 +311,30 @@
     <div id="player-hand" class="player-hand"></div>
   </div>
 
+</div>
+
+<!-- ═══════════════════  HOST SEAT-OFFER MODAL  ═══════════════════ -->
+<div id="seat-offer-host-modal" class="offer-modal-backdrop hidden">
+  <div class="offer-modal">
+    <h3 class="offer-modal-title">Seat Available</h3>
+    <p id="seat-offer-host-msg" class="offer-modal-msg"></p>
+    <p class="offer-modal-hint">Pick a spectator to offer the open seat, or wait — the system will auto-assign in 2 minutes.</p>
+    <ul id="seat-offer-spec-list" class="spec-pick-list"></ul>
+    <button id="btn-seat-offer-skip" class="btn btn-secondary btn-sm" style="margin-top:10px">Let bot keep the seat</button>
+  </div>
+</div>
+
+<!-- ═══════════════════  SPECTATOR SEAT-OFFER MODAL  ═══════════════════ -->
+<div id="seat-offer-spec-modal" class="offer-modal-backdrop hidden">
+  <div class="offer-modal">
+    <h3 class="offer-modal-title">You're invited to play!</h3>
+    <p id="seat-offer-spec-msg" class="offer-modal-msg"></p>
+    <p class="offer-modal-hint">You have 60 seconds to decide. No response = decline.</p>
+    <div class="offer-modal-btns">
+      <button id="btn-spec-accept" class="btn btn-primary">Join the game</button>
+      <button id="btn-spec-decline" class="btn btn-secondary">Stay as spectator</button>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>

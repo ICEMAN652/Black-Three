@@ -76,10 +76,34 @@ def redis_device_count():
             pass
     return None
 
-# ── Historical counters (reset on redeploy, tracked in-memory) ───────────────
-total_rooms_created      = 0   # every time a room is created via create_room_req
-total_rounds_played      = 0   # every time a round starts (start_game + new_round_action)
-total_multiplayer_rooms  = 0   # rooms that have ever had 2+ humans (counted once per room)
+ROOMS_CREATED_KEY     = 'spade3:rooms_created'
+MULTIPLAYER_ROOMS_KEY = 'spade3:multiplayer_rooms'
+ROUNDS_PLAYED_KEY     = 'spade3:rounds_played'
+
+def redis_incr(key):
+    """Atomically increment a Redis integer counter. No-op if Redis is unavailable."""
+    r = _get_redis()
+    if r:
+        try:
+            r.incr(key)
+        except Exception:
+            pass
+
+def redis_get_int(key):
+    """Return a Redis integer counter value, or None if unavailable."""
+    r = _get_redis()
+    if r:
+        try:
+            v = r.get(key)
+            return int(v) if v else 0
+        except Exception:
+            pass
+    return None
+
+# ── In-session counters (reset on redeploy — used as fallback when Redis is down) ──
+total_rooms_created      = 0
+total_rounds_played      = 0
+total_multiplayer_rooms  = 0
 
 # ─── Card Constants ───────────────────────────────────────────────────────────
 # Cards are stored as 2-character strings: suit letter + rank letter
@@ -1469,15 +1493,17 @@ def stats():
         f"<h2>&#x25B3; Historical (persists across deploys)</h2>"
         f"<table>"
         f"<tr><td>Unique devices</td><td><strong>"
-        f"{redis_device_count() if redis_device_count() is not None else '<span style=color:#f88>N/A</span>'}"
+        f"{redis_device_count() if redis_device_count() is not None else '<span style=color:#f88>N/A (Redis unavailable)</span>'}"
         f"</strong></td></tr>"
-        f"</table>"
-        f"<h2>&#x25B3; This session (resets on deploy)</h2>"
-        f"<table>"
-        f"<tr><td>Rooms created</td><td><strong>{total_rooms_created}</strong></td></tr>"
-        f"<tr><td>Multiplayer rooms</td><td><strong>{total_multiplayer_rooms}</strong>"
-        f"  <span class='dim'>(ever had 2+ humans)</span></td></tr>"
-        f"<tr><td>Rounds played</td><td><strong>{total_rounds_played}</strong></td></tr>"
+        f"<tr><td>Rooms created</td><td><strong>"
+        f"{redis_get_int(ROOMS_CREATED_KEY) if redis_get_int(ROOMS_CREATED_KEY) is not None else str(total_rooms_created)+' <span style=color:#f88>(session only)</span>'}"
+        f"</strong></td></tr>"
+        f"<tr><td>Multiplayer rooms</td><td><strong>"
+        f"{redis_get_int(MULTIPLAYER_ROOMS_KEY) if redis_get_int(MULTIPLAYER_ROOMS_KEY) is not None else str(total_multiplayer_rooms)+' <span style=color:#f88>(session only)</span>'}"
+        f"</strong> <span class='dim'>(ever had 2+ humans)</span></td></tr>"
+        f"<tr><td>Rounds played</td><td><strong>"
+        f"{redis_get_int(ROUNDS_PLAYED_KEY) if redis_get_int(ROUNDS_PLAYED_KEY) is not None else str(total_rounds_played)+' <span style=color:#f88>(session only)</span>'}"
+        f"</strong></td></tr>"
         f"</table>"
         f"<p style='color:#555;font-size:0.8rem;margin-top:1.5rem'>Auto-refreshes every 10 s &nbsp;|&nbsp; "
         f"<a href='/stats?fmt=json' style='color:#777'>JSON</a></p>"
@@ -1562,6 +1588,135 @@ def on_rejoin_room(data):
 _LOBBY_REJOIN_GRACE = 120  # seconds a disconnected lobby player has to reconnect
 
 
+# ─── Spectator Seat-Offer Flow ────────────────────────────────────────────────
+
+def _start_seat_offer(room, room_code, seat, player_name):
+    """Called when a mid-game player disconnects/is kicked and spectators are present.
+    Puts the host in 'picking' mode and starts the 2-minute host timer."""
+    room['seat_offer_seq'] += 1
+    seq = room['seat_offer_seq']
+    room['pending_seat_offer'] = {
+        'seat': seat,
+        'player_name': player_name,
+        'tried': set(),
+        'state': 'host_picking',
+        'current_spec_sid': None,
+        'current_spec_id': None,
+    }
+    spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
+                 for v in room['spectators'].values()]
+    host_sid = room.get('host_sid')
+    if host_sid:
+        socketio.emit('host_seat_offer', {
+            'seat': seat, 'player_name': player_name, 'spectators': spec_list,
+        }, to=host_sid)
+    socketio.start_background_task(_host_offer_timer, room_code, seq)
+
+
+def _host_offer_timer(room_code, offer_seq):
+    """After 2 minutes with no host pick, auto-advance to the first spectator in join order."""
+    socketio.sleep(120)
+    if room_code not in rooms:
+        return
+    room = rooms[room_code]
+    if room.get('seat_offer_seq') != offer_seq:
+        return
+    pso = room.get('pending_seat_offer')
+    if not pso or pso['state'] != 'host_picking':
+        return
+    _advance_to_next_spectator(room, room_code)
+
+
+def _offer_to_spectator(room, room_code, spec_sid, spec_id):
+    """Offer a specific spectator the open seat and start the 1-minute acceptance timer."""
+    pso = room['pending_seat_offer']
+    room['seat_offer_seq'] += 1
+    seq = room['seat_offer_seq']
+    pso['state'] = 'spec_offered'
+    pso['current_spec_sid'] = spec_sid
+    pso['current_spec_id'] = spec_id
+    socketio.emit('spectator_seat_offer', {
+        'seat': pso['seat'], 'player_name': pso['player_name'],
+    }, to=spec_sid)
+    socketio.start_background_task(_spec_offer_timer, room_code, spec_sid, seq)
+
+
+def _spec_offer_timer(room_code, spec_sid, offer_seq):
+    """After 1 minute with no response, treat the spectator as having declined."""
+    socketio.sleep(60)
+    if room_code not in rooms:
+        return
+    room = rooms[room_code]
+    if room.get('seat_offer_seq') != offer_seq:
+        return
+    pso = room.get('pending_seat_offer')
+    if not pso or pso['state'] != 'spec_offered' or pso['current_spec_sid'] != spec_sid:
+        return
+    spec_data = room['spectators'].get(spec_sid)
+    if spec_data:
+        pso['tried'].add(spec_data['spec_id'])
+    pso['state'] = 'host_picking'
+    pso['current_spec_sid'] = None
+    pso['current_spec_id'] = None
+    _advance_to_next_spectator(room, room_code)
+
+
+def _advance_to_next_spectator(room, room_code):
+    """Auto-pick the next untried spectator by join order (lowest spec_id). Cancel if none left."""
+    pso = room.get('pending_seat_offer')
+    if not pso:
+        return
+    tried = pso['tried']
+    candidates = sorted(
+        [(v['spec_id'], sid) for sid, v in room.get('spectators', {}).items()
+         if v['spec_id'] not in tried],
+        key=lambda x: x[0]
+    )
+    if not candidates:
+        _cancel_seat_offer(room, room_code)
+        return
+    spec_id, spec_sid = candidates[0]
+    _offer_to_spectator(room, room_code, spec_sid, spec_id)
+
+
+def _cancel_seat_offer(room, room_code):
+    """Clear the pending offer and dismiss the host modal (bot keeps the seat)."""
+    room['pending_seat_offer'] = None
+    room['seat_offer_seq'] += 1
+    host_sid = room.get('host_sid')
+    if host_sid:
+        socketio.emit('seat_offer_cancelled', {}, to=host_sid)
+
+
+def _promote_spectator_to_seat(room, room_code, spec_sid):
+    """Convert a spectator to an active player, filling the offered seat."""
+    pso = room.get('pending_seat_offer')
+    if not pso:
+        return
+    seat = pso['seat']
+    spec_data = room.get('spectators', {}).pop(spec_sid, None)
+    if not spec_data:
+        return
+    room.get('spec_id_to_sid', {}).pop(spec_data['spec_id'], None)
+    spec_name = spec_data['name']
+    p = room['seats'].get(seat)
+    if p:
+        p['is_bot'] = False
+        p['name'] = spec_name
+        p['sid'] = spec_sid
+        p.pop('human_name', None)
+        room['sid_to_seat'][spec_sid] = seat
+    if room.get('gs'):
+        room['gs']['player_names'][seat] = spec_name
+        room['gs']['log'].append(f"{spec_name} (spectator) joined as player {seat}.")
+    _cancel_seat_offer(room, room_code)
+    _ensure_valid_host(room)
+    spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
+                 for v in room.get('spectators', {}).values()]
+    socketio.emit('spectator_list_update', {'spectators': spec_list}, to=room_code)
+    broadcast_game_state(room_code)
+
+
 def _ensure_valid_host(room):
     """Fix a stale or missing host_sid by assigning the lowest-seated connected human.
     Called after any join/rejoin/cleanup so there is always a live host when humans are present."""
@@ -1618,6 +1773,22 @@ def on_disconnect():
     if not room_code or room_code not in rooms:
         return
     room = rooms[room_code]
+    # Handle spectator disconnect
+    if sid in room.get('spectators', {}):
+        spec_data = room['spectators'].pop(sid)
+        room.get('spec_id_to_sid', {}).pop(spec_data['spec_id'], None)
+        # If this spectator was being offered a seat, skip them
+        pso = room.get('pending_seat_offer')
+        if pso and pso.get('current_spec_sid') == sid:
+            pso['tried'].add(spec_data['spec_id'])
+            pso['state'] = 'host_picking'
+            pso['current_spec_sid'] = None
+            pso['current_spec_id'] = None
+            _advance_to_next_spectator(room, room_code)
+        spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
+                     for v in room['spectators'].values()]
+        socketio.emit('spectator_list_update', {'spectators': spec_list}, to=room_code)
+        return
     seat = room['sid_to_seat'].get(sid)
     if not seat:
         return
@@ -1641,6 +1812,9 @@ def on_disconnect():
         if not any(not pl['is_bot'] for pl in room['seats'].values()):
             del rooms[room_code]
             return
+        # Offer open seat to spectators (private rooms only)
+        if room.get('spectators') and not room.get('is_public') and not room.get('pending_seat_offer'):
+            _start_seat_offer(room, room_code, seat, old_name)
         _process_trick_auto_mp(room)
     else:
         # Lobby disconnect: keep the seat alive so the player can reconnect quickly
@@ -1710,12 +1884,78 @@ def on_kick_player(data):
         p['name'] = bot_name
         gs['player_names'][target_seat] = bot_name
         gs['log'].append(f"{old_name} was kicked (bot takes over).")
+        if room.get('spectators') and not room.get('is_public') and not room.get('pending_seat_offer'):
+            _start_seat_offer(room, room_code, target_seat, old_name)
         broadcast_game_state(room_code)
         _process_trick_auto_mp(room)
     else:
         # Lobby: just remove the seat
         del room['seats'][target_seat]
         broadcast_lobby(room_code)
+
+
+@socketio.on('host_pick_spectator')
+def on_host_pick_spectator(data):
+    """Host selects a specific spectator to fill the open seat."""
+    sid = request.sid
+    room_code = sid_room.get(sid)
+    if not room_code or room_code not in rooms:
+        return
+    room = rooms[room_code]
+    if room.get('host_sid') != sid:
+        return
+    pso = room.get('pending_seat_offer')
+    if not pso or pso['state'] != 'host_picking':
+        return
+    spec_id = data.get('spec_id')
+    if spec_id is None:
+        _cancel_seat_offer(room, room_code)
+        return
+    spec_sid = room.get('spec_id_to_sid', {}).get(spec_id)
+    if not spec_sid or spec_id in pso['tried']:
+        return
+    _offer_to_spectator(room, room_code, spec_sid, spec_id)
+
+
+@socketio.on('spectator_seat_response')
+def on_spectator_seat_response(data):
+    """Spectator accepts or declines the offered seat."""
+    sid = request.sid
+    room_code = sid_room.get(sid)
+    if not room_code or room_code not in rooms:
+        return
+    room = rooms[room_code]
+    pso = room.get('pending_seat_offer')
+    if not pso or pso['state'] != 'spec_offered' or pso['current_spec_sid'] != sid:
+        return
+    if data.get('accept'):
+        _promote_spectator_to_seat(room, room_code, sid)
+    else:
+        spec_id = pso['current_spec_id']
+        if spec_id is not None:
+            pso['tried'].add(spec_id)
+        pso['state'] = 'host_picking'
+        pso['current_spec_sid'] = None
+        pso['current_spec_id'] = None
+        room['seat_offer_seq'] += 1
+        # Rebuild remaining spectator list (not yet tried)
+        remaining = [
+            {'name': v['name'], 'spec_id': v['spec_id']}
+            for v in room.get('spectators', {}).values()
+            if v['spec_id'] not in pso['tried']
+        ]
+        if not remaining:
+            _cancel_seat_offer(room, room_code)
+        else:
+            host_sid = room.get('host_sid')
+            if host_sid:
+                socketio.emit('host_seat_offer', {
+                    'seat': pso['seat'],
+                    'player_name': pso['player_name'],
+                    'spectators': remaining,
+                }, to=host_sid)
+            new_seq = room['seat_offer_seq']
+            socketio.start_background_task(_host_offer_timer, room_code, new_seq)
 
 
 @socketio.on('vote_kick_host')
@@ -1856,8 +2096,10 @@ def on_create_room(data):
         'spec_id_to_sid': {},     # spec_id -> sid reverse map (for kick/pick)
         'seat_offer_seq': 0,      # incremented each time a seat is offered/filled/expired
         'turn_seq': 0,            # incremented each time a human turn timer starts or player acts
+        'pending_seat_offer': None,  # active seat offer flow dict, or None
     }
     total_rooms_created += 1
+    redis_incr(ROOMS_CREATED_KEY)
     sid_room[sid] = code
     sio_join(code)         # subscribe this socket to the SocketIO room channel
     broadcast_lobby(code)
@@ -1872,6 +2114,7 @@ def _check_multiplayer_milestone(room):
     if human_count >= 2:
         room['counted_multiplayer'] = True
         total_multiplayer_rooms += 1
+        redis_incr(MULTIPLAYER_ROOMS_KEY)
 
 
 @socketio.on('join_room_req')
@@ -1879,11 +2122,14 @@ def on_join_room(data):
     """
     Handle a player joining an existing room by code.
     If the game is already in progress, the player can only join by taking over
-    a bot seat (mid-game join). If the lobby is full (6 humans), reject the join.
+    a bot seat (mid-game join), or explicitly as a spectator (spectate=True).
+    If the lobby is full (6 humans), reject the join.
+    Public rooms do not support spectating.
     """
     sid = request.sid
     code = (data.get('code') or '').strip().upper()
     name = (data.get('name') or 'Player').strip()[:20] or 'Player'
+    wants_spectate = bool(data.get('spectate', False))
 
     if code not in rooms:
         emit('join_error', {'msg': 'Room not found. Check the code.'})
@@ -1899,6 +2145,37 @@ def on_join_room(data):
     # Prevent duplicate joins from the same socket (e.g. double-clicking Join)
     if sid in room['sid_to_seat']:
         broadcast_lobby(code)
+        return
+
+    # Public rooms cannot be spectated
+    if wants_spectate and room.get('is_public'):
+        emit('join_error', {'msg': 'Public rooms cannot be spectated.'})
+        return
+
+    # Explicit spectate request: only valid for in-progress games
+    if wants_spectate:
+        if room['status'] != 'playing':
+            emit('join_error', {'msg': "Can't spectate a lobby — join as a player instead."})
+            return
+        if sid in room.get('spectators', {}):
+            if room.get('gs'):
+                emit('game_state', spectator_state_mp(room['gs'], room, sid))
+            return
+        room.setdefault('spectators', {})
+        room.setdefault('spec_id_counter', 0)
+        room.setdefault('spec_id_to_sid', {})
+        room['spec_id_counter'] += 1
+        spec_id = room['spec_id_counter']
+        room['spectators'][sid] = {'name': name, 'spec_id': spec_id}
+        room['spec_id_to_sid'][spec_id] = sid
+        sid_room[sid] = code
+        sio_join(code)
+        emit('joined_as_spectator', {'name': name, 'room_code': code})
+        if room.get('gs'):
+            emit('game_state', spectator_state_mp(room['gs'], room, sid))
+        spec_list = [{'name': v['name'], 'spec_id': v['spec_id']}
+                     for v in room['spectators'].values()]
+        socketio.emit('spectator_list_update', {'spectators': spec_list}, to=code)
         return
 
     if room['status'] == 'playing':
@@ -2002,6 +2279,7 @@ def on_start_game(_data):
     names_dict = {seat: p['name'] for seat, p in room['seats'].items()}
     room['gs'] = create_game_mp(names_dict)
     total_rounds_played += 1
+    redis_incr(ROUNDS_PLAYED_KEY)
     _process_bidding_mp(room)
 
 
@@ -2165,6 +2443,7 @@ def on_new_round(_data):
     next_seat = gs['start_seat'] % 6 + 1
     room['gs'] = create_game_mp(names_dict, game_scores, start_seat=next_seat)
     total_rounds_played += 1
+    redis_incr(ROUNDS_PLAYED_KEY)
     _process_bidding_mp(room)
 
 

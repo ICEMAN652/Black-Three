@@ -183,10 +183,46 @@ socket.on('game_state', (data) => {
 });
 
 socket.on('join_error', (data) => {
-  // Server rejected the join request (room full, not found, etc.)
   joinLoaderStop();
   $('btn-join-submit').disabled = false;
+  $('btn-spectate-submit').disabled = false;
   showSetupError(data.msg);
+});
+
+socket.on('joined_as_spectator', (data) => {
+  myRoomCode = data.room_code;
+  mySeat = null;
+  myName = data.name;
+});
+
+socket.on('spectator_list_update', (data) => {
+  // Update spectator list in host seat-offer modal if it's open
+  const modal = $('seat-offer-host-modal');
+  if (!modal.classList.contains('hidden') && data.spectators) {
+    renderSpecPickList(data.spectators, modal._offerSeat, modal._offerTried || new Set());
+  }
+});
+
+socket.on('host_seat_offer', (data) => {
+  const modal = $('seat-offer-host-modal');
+  modal._offerSeat = data.seat;
+  modal._offerTried = new Set();
+  $('seat-offer-host-msg').textContent =
+    `${data.player_name} left. Offer their seat (Seat ${data.seat}) to a spectator?`;
+  renderSpecPickList(data.spectators, data.seat, new Set());
+  modal.classList.remove('hidden');
+});
+
+socket.on('spectator_seat_offer', (data) => {
+  $('seat-offer-spec-msg').textContent =
+    `${data.player_name}'s seat (Seat ${data.seat}) is open. Do you want to join the game?`;
+  $('seat-offer-spec-modal')._offerSeat = data.seat;
+  $('seat-offer-spec-modal').classList.remove('hidden');
+});
+
+socket.on('seat_offer_cancelled', () => {
+  $('seat-offer-host-modal').classList.add('hidden');
+  $('seat-offer-spec-modal').classList.add('hidden');
 });
 
 socket.on('room_lost', () => {
@@ -231,12 +267,59 @@ $('btn-join-submit').addEventListener('click', () => {
   const code = $('join-code-input').value.trim().toUpperCase();
   if (!code) { showSetupError('Enter a room code.'); return; }
   $('btn-join-submit').disabled = true;
+  $('btn-spectate-submit').disabled = true;
   joinLoaderStart();
   socket.emit('join_room_req', { name: myName, code });
 });
 
+$('btn-spectate-submit').addEventListener('click', () => {
+  myName = $('player-name').value.trim() || 'Player';
+  const code = $('join-code-input').value.trim().toUpperCase();
+  if (!code) { showSetupError('Enter a room code to spectate.'); return; }
+  $('btn-join-submit').disabled = true;
+  $('btn-spectate-submit').disabled = true;
+  joinLoaderStart();
+  socket.emit('join_room_req', { name: myName, code, spectate: true });
+});
+
 $('join-code-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') $('btn-join-submit').click();
+});
+
+// ── Seat-offer modal handlers ──────────────────────────────────────────────
+function renderSpecPickList(spectators, seat, tried) {
+  const list = $('seat-offer-spec-list');
+  list.innerHTML = '';
+  spectators.forEach(s => {
+    if (tried.has(s.spec_id)) return;
+    const li = document.createElement('li');
+    li.className = 'spec-pick-item';
+    li.innerHTML = `<span>${escHtml(s.name)}</span>
+      <button class="btn btn-primary btn-sm" data-spec-id="${s.spec_id}">Offer seat</button>`;
+    li.querySelector('button').addEventListener('click', () => {
+      socket.emit('host_pick_spectator', { spec_id: s.spec_id, seat });
+      $('seat-offer-host-modal').classList.add('hidden');
+    });
+    list.appendChild(li);
+  });
+  if (!list.children.length) {
+    list.innerHTML = '<li style="color:#888;font-size:0.85rem">No spectators available</li>';
+  }
+}
+
+$('btn-seat-offer-skip').addEventListener('click', () => {
+  $('seat-offer-host-modal').classList.add('hidden');
+  socket.emit('host_pick_spectator', { spec_id: null });  // signal cancel
+});
+
+$('btn-spec-accept').addEventListener('click', () => {
+  $('seat-offer-spec-modal').classList.add('hidden');
+  socket.emit('spectator_seat_response', { accept: true });
+});
+
+$('btn-spec-decline').addEventListener('click', () => {
+  $('seat-offer-spec-modal').classList.add('hidden');
+  socket.emit('spectator_seat_response', { accept: false });
 });
 
 $('player-name').addEventListener('keydown', e => {
@@ -525,25 +608,38 @@ $('btn-close-game-start').addEventListener('click', () => {
 
 // ── Main render ────────────────────────────────────────────────────────────
 function render(state) {
-  // Called every time a new game_state arrives from the server.
-  // Calls each sub-renderer in order; each one is responsible for one area of the UI.
-  // wasSetTrump detects the transition from set_trump → playing to show the startup modal.
   const wasSetTrump = prevPhase === 'set_trump';
   prevPhase = state.phase;
   gs = state;
-  renderTopBar(state);           // room code, bid, trump, trick counter in the top bar
-  renderOpponents(state);        // opponent seats (names, card-back counts, scores)
-  renderTrick(state);            // cards currently on the table
-  renderLastTrick(state);        // banner showing who won the last trick
-  renderPlayerHand(state);       // the human player's own cards at the bottom
-  renderLog(state);              // scrolling game log on the right
-  renderPhasePanel(state);       // bidding / set-trump / scoring panels in center
-  renderPartnerInfo(state);      // partner card reminder box at the bottom of the log
-  renderVoteKick(state);         // vote-kick host box (hidden for the host themselves)
-  updateOpponentHighlights(state); // ring/glow on active, bidder, and partner seats
-  if (wasSetTrump && state.phase === 'playing') {
-    showGameStartModal(state);   // popup showing trump and partner cards at game start
+  renderTopBar(state);
+  renderOpponents(state);
+  renderTrick(state);
+  renderLastTrick(state);
+  renderLog(state);
+  renderVoteKick(state);
+  updateOpponentHighlights(state);
+  if (state.is_spectator) {
+    renderSpectatorView(state);
+  } else {
+    renderPlayerHand(state);
+    renderPhasePanel(state);
+    renderPartnerInfo(state);
+    if (wasSetTrump && state.phase === 'playing') {
+      showGameStartModal(state);
+    }
   }
+}
+
+function renderSpectatorView(state) {
+  $('player-hand').innerHTML = '<span class="spectator-banner">👁 Spectating</span>';
+  $('player-name-label').textContent = '👁 Spectating';
+  $('player-score-label').textContent = '';
+  // Hide all action panels (same panels renderPhasePanel manages)
+  $('panel-bidding').classList.add('hidden');
+  $('panel-set-trump').classList.add('hidden');
+  $('panel-scoring').classList.add('hidden');
+  $('panel-waiting').classList.add('hidden');
+  $('partner-info-box').classList.add('hidden');
 }
 
 function renderTopBar(s) {
