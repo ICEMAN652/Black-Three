@@ -1388,6 +1388,7 @@ def client_state_mp(gs, viewer_seat, room):
         'vote_kick_needed': vote_needed_v,
         'my_vote_cast': viewer_seat in room.get('vote_kick_votes', set()),
         'host_name': host_name_v,
+        'spectators': [{'name': v['name']} for v in room.get('spectators', {}).values()],
     }
 
 

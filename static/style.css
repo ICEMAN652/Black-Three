@@ -904,3 +904,52 @@ body {
   color: #eee;
   font-size: 0.9rem;
 }
+
+/* ── Spectator count button & dropdown ─────────────────────────────────────── */
+.spectator-btn-wrap { position: relative; display: inline-block; }
+.btn-spectator-count {
+  background: rgba(168,85,247,0.15);
+  border: 1px solid rgba(168,85,247,0.4);
+  color: #d8b4fe;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-spectator-count:hover { background: rgba(168,85,247,0.28); border-color: #a855f7; }
+.spectator-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 160px;
+  background: #1e1e2e;
+  border: 1px solid rgba(168,85,247,0.35);
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+  z-index: 300;
+}
+.spectator-dropdown.hidden { display: none; }
+.spectator-dropdown-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #a855f7;
+  margin-bottom: 8px;
+}
+.spectator-name-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.spectator-name-list li {
+  color: #d8b4fe;
+  font-size: 0.88rem;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(168,85,247,0.12);
+}
+.spectator-name-list li:last-child { border-bottom: none; }

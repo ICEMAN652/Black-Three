@@ -196,7 +196,8 @@ socket.on('joined_as_spectator', (data) => {
 });
 
 socket.on('spectator_list_update', (data) => {
-  // Update spectator list in host seat-offer modal if it's open
+  updateSpectatorButton(data.spectators || []);
+  // Also refresh host seat-offer modal if it's open
   const modal = $('seat-offer-host-modal');
   if (!modal.classList.contains('hidden') && data.spectators) {
     renderSpecPickList(data.spectators, modal._offerSeat, modal._offerTried || new Set());
@@ -680,7 +681,50 @@ function renderTopBar(s) {
   } else {
     pEl.innerHTML = '';
   }
+  updateSpectatorButton(s.spectators || []);
 }
+
+// ── Spectator count button ─────────────────────────────────────────────────
+function updateSpectatorButton(spectators) {
+  const wrap = $('spectator-btn-wrap');
+  if (!spectators || spectators.length === 0) {
+    wrap.classList.add('hidden');
+    $('spectator-dropdown').classList.add('hidden');
+    return;
+  }
+  wrap.classList.remove('hidden');
+  $('spectator-count').textContent = spectators.length;
+  // Refresh dropdown list if it's already open
+  if (!$('spectator-dropdown').classList.contains('hidden')) {
+    renderSpectatorNames(spectators);
+  }
+}
+
+function renderSpectatorNames(spectators) {
+  const ul = $('spectator-name-list');
+  ul.innerHTML = '';
+  spectators.forEach(s => {
+    const li = document.createElement('li');
+    li.textContent = s.name;
+    ul.appendChild(li);
+  });
+}
+
+$('btn-spectators').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const dropdown = $('spectator-dropdown');
+  const isHidden = dropdown.classList.contains('hidden');
+  if (isHidden) {
+    renderSpectatorNames((gs && gs.spectators) || []);
+    dropdown.classList.remove('hidden');
+  } else {
+    dropdown.classList.add('hidden');
+  }
+});
+
+document.addEventListener('click', () => {
+  $('spectator-dropdown').classList.add('hidden');
+});
 
 function renderOpponents(s) {
   // The server sends opp_display: an ordered list of 5 seat numbers to show in slots 2-6.
