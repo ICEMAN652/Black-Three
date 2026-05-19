@@ -971,3 +971,236 @@ body {
   border-bottom: 1px solid rgba(168,85,247,0.12);
 }
 .spectator-name-list li:last-child { border-bottom: none; }
+
+/* ── Walkthrough Modal ─────────────────────────────────────────────────────── */
+.wt-modal {
+  position: fixed; inset: 0; z-index: 1200;
+  background: rgba(0,0,0,0.82);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.wt-modal.hidden { display: none; }
+
+.wt-inner {
+  position: relative;
+  background: #141d14;
+  border: 2px solid var(--gold);
+  border-radius: 18px;
+  padding: 32px 36px 24px;
+  max-width: 540px; width: 100%;
+  max-height: 90vh; overflow-y: auto;
+}
+
+.wt-title {
+  color: var(--gold);
+  font-size: 1.35rem;
+  font-weight: 800;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.wt-step { display: block; }
+.wt-step.hidden { display: none; }
+
+.wt-visual {
+  background: rgba(0,0,0,0.35);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Step 0 – player table */
+.wt-table { text-align: center; width: 100%; }
+.wt-table-row { display: flex; justify-content: center; gap: 10px; margin: 6px 0; }
+.wt-table-center { color: var(--gold); font-size: 1rem; font-weight: 700; margin: 10px 0; }
+.wt-player-chip {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 0.82rem;
+  color: #ccc;
+}
+.wt-player-chip.wt-you {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(212,165,32,0.1);
+}
+
+/* Step 1 – bid sequence */
+.wt-bid-demo { width: 100%; display: flex; flex-direction: column; gap: 5px; }
+.wt-bid-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  border-radius: 7px;
+  background: rgba(255,255,255,0.05);
+  font-size: 0.88rem;
+}
+.wt-bid-who { color: #999; font-size: 0.8rem; }
+.wt-bid-val { font-weight: 700; color: #eee; }
+.wt-bid-mandatory { border-left: 3px solid var(--gold); }
+.wt-bid-pass .wt-bid-val { color: #555; font-weight: 400; }
+.wt-bid-winner { background: rgba(212,165,32,0.1); border: 1px solid rgba(212,165,32,0.3); }
+.wt-bid-winner .wt-bid-val { color: var(--gold); }
+.wt-badge { font-size: 0.7rem; color: #888; font-weight: 400; margin-left: 4px; }
+
+/* Step 2 – trump & partners */
+.wt-trump-demo { text-align: center; width: 100%; }
+.wt-trump-suits { display: flex; gap: 10px; justify-content: center; margin-bottom: 10px; }
+.wt-suit-chip {
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem;
+  border-radius: 8px;
+  border: 2px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
+  color: #ccc;
+}
+.wt-suit-chip.wt-suit-selected { border-color: var(--gold); background: rgba(212,165,32,0.18); color: var(--gold); }
+.wt-suit-chip.wt-suit-red { color: var(--red); }
+.wt-trump-label { font-size: 0.88rem; color: #aaa; margin-bottom: 14px; }
+.wt-partner-cards { display: flex; gap: 20px; justify-content: center; }
+.wt-partner-wrap { text-align: center; }
+.wt-partner-label { font-size: 0.7rem; color: #aaa; margin-bottom: 4px; }
+.wt-demo-card {
+  width: 48px; height: 66px;
+  background: white;
+  border-radius: 6px;
+  border: 2px solid #ccc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 800;
+  box-shadow: 2px 3px 8px rgba(0,0,0,0.5);
+  line-height: 1.1;
+}
+.wt-demo-black { color: #111; }
+.wt-demo-red { color: var(--red); border-color: #ffcccc; }
+
+/* Step 3 – trick demo */
+.wt-trick-demo { width: 100%; text-align: center; }
+.wt-trick-example { display: flex; gap: 12px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap; }
+.wt-trick-card-wrap { text-align: center; }
+.wt-trick-note { font-size: 0.8rem; color: var(--gold); margin-top: 4px; }
+
+/* Step 4 – score demo */
+.wt-score-demo { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.wt-score-row { display: flex; align-items: center; gap: 14px; }
+.wt-score-pts { font-size: 0.88rem; color: #ddd; }
+
+/* Shared list */
+.wt-list { padding-left: 18px; margin: 0; }
+.wt-list li { color: #ccc; font-size: 0.88rem; line-height: 1.6; margin-bottom: 6px; }
+
+/* Nav bar */
+.wt-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+.wt-dots { display: flex; gap: 8px; align-items: center; }
+.wt-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+.wt-dot.active { background: var(--gold); transform: scale(1.3); }
+
+/* Enhanced rules modal sections */
+.rm-section { margin-bottom: 20px; }
+.rm-section-title {
+  color: var(--gold);
+  font-size: 0.92rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(212,165,32,0.2);
+}
+.rm-visual { margin-bottom: 10px; padding: 12px; }
+.rm-list { padding-left: 18px; margin: 0; }
+.rm-list li { font-size: 0.85rem; color: #ccc; line-height: 1.55; margin-bottom: 5px; }
+
+/* Walkthrough button on setup screen */
+.btn-walkthrough {
+  background: rgba(56,178,172,0.15);
+  border: 2px solid rgba(56,178,172,0.45);
+  color: #81e6d9;
+}
+.btn-walkthrough:hover { background: rgba(56,178,172,0.3); border-color: #38b2ac; }
+
+/* Mobile adjustments */
+@media (max-width: 600px) {
+  .wt-inner { padding: 24px 16px 18px; }
+  .wt-title { font-size: 1.1rem; }
+  .wt-trick-example { gap: 6px; }
+  .wt-trump-suits { gap: 6px; }
+  .wt-suit-chip { width: 36px; height: 36px; font-size: 1.15rem; }
+}
+
+/* ── Practice hint box ──────────────────────────────────────────────────────── */
+.practice-hint-box {
+  position: fixed;
+  bottom: 118px;
+  left: 12px;
+  z-index: 500;
+  width: 262px;
+  background: rgba(6, 24, 40, 0.96);
+  border: 1px solid rgba(56, 178, 172, 0.5);
+  border-radius: 12px;
+  padding: 11px 13px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.55);
+}
+.practice-hint-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+.practice-hint-icon { font-size: 0.9rem; }
+.practice-hint-title {
+  font-size: 0.7rem;
+  color: #81e6d9;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  flex: 1;
+}
+.practice-hint-dismiss {
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+.practice-hint-dismiss:hover { color: #aaa; }
+.practice-hint-text {
+  font-size: 0.8rem;
+  color: #b0b0b0;
+  line-height: 1.55;
+}
+.practice-hint-text strong { color: #e8e8e8; }
+.practice-hint-text em { color: #81e6d9; font-style: normal; }
+
+@media (max-width: 600px) {
+  .practice-hint-box {
+    bottom: auto;
+    top: 52px;
+    left: 8px;
+    width: calc(100vw - 16px);
+    max-width: 380px;
+  }
+}

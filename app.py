@@ -1050,6 +1050,11 @@ def _apply_trump_partners_mp(room, trump, partner_1, partner_2, auto=False):
     gs['trick_play_order'] = get_trick_play_order(gs['trick_leader'])
     gs['message'] = "Game on!"
     gs['log'].append(f"─── Playing begins. {bidder_name} leads. ───")
+    # In practice rooms, wait for the trump announcement card to disappear
+    # before bots start playing (the client shows it for 5 seconds).
+    if room.get('is_practice'):
+        broadcast_game_state(room['code'])
+        socketio.sleep(5.0)
     _process_trick_auto_mp(room)
 
 
@@ -1146,7 +1151,7 @@ def _process_trick_auto_mp(room):
         gs['log'].append(f"  {name} plays {disp}")
         if has_humans:
             broadcast_game_state(room['code'])
-            socketio.sleep(0.5)
+            socketio.sleep(2.0 if room.get('is_practice') else 0.5)
 
 
 def _finish_trick(gs):
@@ -2161,6 +2166,7 @@ def on_create_room(data):
         'vote_kick_votes': set(), # set of seat numbers that have voted to kick the host
         'counted_multiplayer': False, # True once we've counted this room in total_multiplayer_rooms
         'is_public': False,       # True when host has opted in to public browsing
+        'is_practice': bool(data.get('practice')),  # True for solo practice matches
         'spectators': {},         # {sid: {'name': str, 'spec_id': int}}
         'spec_id_counter': 0,     # monotonic counter for stable spectator IDs
         'spec_id_to_sid': {},     # spec_id -> sid reverse map (for kick/pick)

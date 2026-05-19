@@ -171,6 +171,10 @@ socket.on('lobby_update', (data) => {
   mySeat = data.my_seat;   // null for spectators
   renderLobby(data);
   showScreen('lobby');
+  if (pendingPracticeStart && data.is_host) {
+    pendingPracticeStart = false;
+    socket.emit('start_game', {});
+  }
 });
 
 socket.on('game_state', (data) => {
@@ -503,6 +507,9 @@ $('btn-new-game-top').addEventListener('click', () => {
     selectedTrump = null;
     selectedP1 = null;
     selectedP2 = null;
+    isPracticeMode = false;
+    hintDismissed = false;
+    $('practice-hint-box').classList.add('hidden');
     showScreen('setup');
   }
 });
@@ -647,6 +654,7 @@ function render(state) {
       showGameStartModal(state);
     }
   }
+  updatePracticeHint(state);
 }
 
 function renderSpectatorView(state) {
@@ -1162,6 +1170,338 @@ function getSuitOrder(present) {
     if (blacks[1]) order.push(blacks[1]);
   }
   return order;
+}
+
+// ── Walkthrough ────────────────────────────────────────────────────────────
+const WT_STEPS = 5;
+let wtCurrentStep = 0;
+let pendingPracticeStart = false;
+let isPracticeMode = false;
+let hintDismissed = false;
+
+function showWtStep(n) {
+  wtCurrentStep = n;
+  for (let i = 0; i < WT_STEPS; i++) {
+    const el = $(`wt-step-${i}`);
+    if (el) el.classList.toggle('hidden', i !== n);
+  }
+  document.querySelectorAll('.wt-dot').forEach((dot, i) => {
+    dot.classList.toggle('active', i === n);
+  });
+  $('btn-wt-prev').disabled = n === 0;
+  $('btn-wt-next').textContent = n === WT_STEPS - 1 ? 'Practice Match!' : 'Next →';
+}
+
+function startPracticeMatch() {
+  $('walkthrough-modal').classList.add('hidden');
+  myName = $('player-name').value.trim() || 'Player';
+  isPracticeMode = true;
+  hintDismissed = false;
+  pendingPracticeStart = true;
+  socket.emit('create_room', { name: myName, practice: true });
+}
+
+$('btn-walkthrough').addEventListener('click', () => {
+  showWtStep(0);
+  $('walkthrough-modal').classList.remove('hidden');
+});
+
+$('btn-practice-direct').addEventListener('click', () => {
+  startPracticeMatch();
+});
+
+$('btn-close-wt').addEventListener('click', () => {
+  $('walkthrough-modal').classList.add('hidden');
+});
+
+$('walkthrough-modal').addEventListener('click', e => {
+  if (e.target === $('walkthrough-modal')) $('walkthrough-modal').classList.add('hidden');
+});
+
+$('btn-wt-prev').addEventListener('click', () => {
+  if (wtCurrentStep > 0) showWtStep(wtCurrentStep - 1);
+});
+
+$('btn-wt-next').addEventListener('click', () => {
+  if (wtCurrentStep < WT_STEPS - 1) showWtStep(wtCurrentStep + 1);
+  else startPracticeMatch();
+});
+
+document.querySelectorAll('.wt-dot').forEach(dot => {
+  dot.addEventListener('click', () => showWtStep(parseInt(dot.dataset.step)));
+});
+
+$('btn-dismiss-hint').addEventListener('click', () => {
+  hintDismissed = true;
+  $('practice-hint-box').classList.add('hidden');
+});
+
+function updatePracticeHint(s) {
+  const box = $('practice-hint-box');
+  if (!isPracticeMode || hintDismissed || !box || s.is_spectator) {
+    if (box) box.classList.add('hidden');
+    return;
+  }
+  box.classList.remove('hidden');
+  const hint = buildPracticeHint(s);
+  if (hint) $('practice-hint-text').innerHTML = hint;
+}
+
+function buildPracticeHint(s) {
+  const SUIT_KEY  = { '♠':'s', '♥':'h', '♦':'d', '♣':'c' };
+  const SUIT_NAME = { s:'Spades', h:'Hearts', d:'Diamonds', c:'Clubs' };
+  const SUIT_SYM  = { s:'♠', h:'♥', d:'♦', c:'♣' };
+  const RANK_D    = { a:'A',k:'K',q:'Q',j:'J',t:'10',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3' };
+  const RANK_ORD  = { a:0,k:1,q:2,j:3,t:4,9:5,8:6,7:7,6:8,5:9,4:10,3:11 };
+  const HIGH_PTS  = { A:20, K:10, Q:10, J:10, '10':10 };
+  const cDisp     = c => SUIT_SYM[c[0]] + RANK_D[c[1]];
+  const cPts      = c => c==='s3' ? 30 : (['a','k','q','j','t'].includes(c[1]) ? (c[1]==='a'?20:10) : 0);
+  const byRank    = arr => [...arr].sort((a,b) => RANK_ORD[a[1]] - RANK_ORD[b[1]]);
+
+  // ── Mirror of Python's ai_max_bid(hand) ────────────────────────────────────
+  function aiMaxBid(hand) {
+    let pts = 60;
+    const sc = {s:0,h:0,d:0,c:0};
+    let hasBlack3 = false;
+    for (const c of hand) {
+      if (c[1]==='a') pts+=45; else if (c[1]==='k') pts+=35; else if (c[1]==='q') pts+=25;
+      sc[c[0]]++;
+      if (c==='s3') hasBlack3 = true;
+    }
+    const best = Object.keys(sc).reduce((a,b) => sc[a]>=sc[b]?a:b);
+    if (sc[best]>=4) { pts += sc[best]*10; if (best==='s'&&hasBlack3) pts+=20; }
+    return pts;
+  }
+
+  // ── Mirror of Python's ai_choose_trump(hand) ───────────────────────────────
+  function aiChooseTrump(hand) {
+    const sc = {s:0,h:0,d:0,c:0};
+    for (const c of hand) {
+      sc[c[0]]++;
+      if (c[1]==='a') sc[c[0]]+=0.5; else if (c[1]==='k') sc[c[0]]+=0.25;
+    }
+    return Object.keys(sc).reduce((a,b) => sc[a]>=sc[b]?a:b);
+  }
+
+  // ── Mirror of Python's ai_choose_partners(hand, trump) ─────────────────────
+  function aiChoosePartners(hand, trump) {
+    const has = new Set(hand);
+    const pri = [];
+    for (const r of ['a','k']) if (!has.has(trump+r)) pri.push(trump+r);
+    for (const su of ['s','h','d','c']) if (su!==trump && !has.has(su+'a')) pri.push(su+'a');
+    for (const su of ['s','h','d','c']) if (su!==trump && !has.has(su+'k')) pri.push(su+'k');
+    for (const r of ['q','j','t']) for (const su of ['s','h','d','c']) if (!has.has(su+r)) pri.push(su+r);
+    const seen = new Set(), out = [];
+    for (const c of pri) { if (!seen.has(c)&&out.length<2) { seen.add(c); out.push(c); } }
+    return out;
+  }
+
+  // ── Suggest a card to play (simplified bot logic) ──────────────────────────
+  function suggestPlay() {
+    const valid = s.hand.filter(h=>h.valid).map(h=>h.card);
+    if (!valid.length) return null;
+    const trump = s.trump, ledSuit = s.first_suit;
+    const tDisp = s.trick_display || [];
+    let curBest = null;
+    tDisp.forEach(e => { if (jsBeats(e.card, curBest, trump, ledSuit)) curBest = e.card; });
+    const tPts = tDisp.reduce((sum,e) => sum+cPts(e.card), 0);
+    const trumpCards = valid.filter(c=>c[0]===trump);
+    const suitCards  = valid.filter(c=>c[0]===ledSuit);
+    const nonTrump   = valid.filter(c=>c[0]!==trump);
+
+    // Leading
+    if (!ledSuit) {
+      const isBidder = s.bidder === s.my_seat;
+      if (isBidder && trumpCards.length>0 && (s.trick_num||1)<=3) {
+        const card = byRank(trumpCards)[0];
+        return { card, why:`As bidder, lead trump early to clear opponents' trump cards so your team controls later tricks.` };
+      }
+      const pool = nonTrump.length ? nonTrump : valid;
+      const sc = {}; pool.forEach(c=>{sc[c[0]]=(sc[c[0]]||0)+1;});
+      const bestSu = Object.keys(sc).reduce((a,b)=>sc[a]>=sc[b]?a:b);
+      const card = byRank(pool.filter(c=>c[0]===bestSu))[0];
+      return { card, why:`Lead the highest card in your strongest suit (${SUIT_NAME[bestSu]}) to try to win the trick and score points.` };
+    }
+
+    // Following suit
+    if (suitCards.length>0) {
+      const winners = suitCards.filter(c=>jsBeats(c,curBest,trump,ledSuit));
+      if (winners.length>0) {
+        const card = byRank(winners).at(-1); // weakest winner
+        const isHighCard = ['a','k','q','j'].includes(card[1]);
+        const why = isHighCard
+          ? `Play your ${cDisp(card)} to try to gain the trick.`
+          : `Follow suit with the weakest card that still wins — no need to waste a stronger card.`;
+        return { card, why };
+      }
+      // Can't win — dump a face card to add points, or play lowest
+      const faceCards = byRank(suitCards).filter(c => ['k','q','j','t'].includes(c[1]));
+      if (faceCards.length > 0) {
+        const card = faceCards.at(-1); // weakest face card
+        return { card, why:`You can't win this trick — play your ${cDisp(card)} to apply its ${cPts(card)} pts to whoever wins it.` };
+      }
+      const card = byRank(suitCards).at(-1); // lowest card
+      return { card, why:`Can't beat the current winner — play your lowest ${SUIT_NAME[ledSuit]} card to minimise losses.` };
+    }
+
+    // Can't follow — trump if worthwhile
+    if (trumpCards.length>0 && tPts>=10) {
+      const wt = trumpCards.filter(c=>jsBeats(c,curBest,trump,ledSuit));
+      if (wt.length>0) {
+        const card = byRank(wt).at(-1);
+        return { card, why:`No ${SUIT_NAME[ledSuit]}, and the trick has ${tPts} pts — trump in with the weakest winning trump to steal it.` };
+      }
+    }
+
+    // Discard — dump a face card to add points, or play lowest
+    const pool = nonTrump.length ? nonTrump : valid;
+    const faceDiscard = byRank(pool).filter(c => c!=='s3' && ['k','q','j','t'].includes(c[1]));
+    if (faceDiscard.length > 0) {
+      const card = faceDiscard.at(-1); // weakest face card
+      return { card, why:`Can't follow suit or profitably trump — play your ${cDisp(card)} to apply its ${cPts(card)} pts to whoever wins this trick.` };
+    }
+    const zeroPt = pool.filter(c=>c!=='s3'&&!['a','k','q','j','t'].includes(c[1]));
+    const card = byRank(zeroPt.length ? zeroPt : pool).at(-1);
+    return { card, why:`Can't follow suit or profitably trump — play your lowest card and save your stronger cards for later.` };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Human's turn → show bot suggestion
+  // ══════════════════════════════════════════════════════════════════════════
+
+  if (s.phase === 'bidding' && s.is_my_bid_turn) {
+    const hand = s.hand.map(h=>h.card);
+    const max  = aiMaxBid(hand);
+
+    // Per-card strength breakdown
+    const legend = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px;font-size:0.75rem">` +
+      `<span style="color:#15803d">● Strong</span>` +
+      `<span style="color:#c2410c">● Might win</span>` +
+      `<span style="color:#475569">● Usually can't win</span>` +
+      `<span style="color:#b45309">● ♠3 special</span>` +
+      `</div>`;
+
+    const cardRows = hand.map(c => {
+      const d = cDisp(c);
+      if (c === 's3') {
+        return `<div style="display:flex;justify-content:space-between;margin-top:3px"><span><strong>${d}</strong></span><span style="color:#b45309;font-size:0.75rem">Ranks as a 3 (low) — but whoever wins this trick scores 30 pts!</span></div>`;
+      }
+      const r = c[1];
+      if (r === 'a') {
+        return `<div style="display:flex;justify-content:space-between;margin-top:3px"><span><strong>${d}</strong></span><span style="color:#15803d;font-size:0.75rem">Strong — wins by itself</span></div>`;
+      }
+      if (r === 'k') {
+        return `<div style="display:flex;justify-content:space-between;margin-top:3px"><span><strong>${d}</strong></span><span style="color:#c2410c;font-size:0.75rem">Might win — if no Ace played</span></div>`;
+      }
+      if (r === 'q') {
+        return `<div style="display:flex;justify-content:space-between;margin-top:3px"><span><strong>${d}</strong></span><span style="color:#c2410c;font-size:0.75rem">Might win — if no A/K played</span></div>`;
+      }
+      if (r === 'j' || r === 't') {
+        return `<div style="display:flex;justify-content:space-between;margin-top:3px"><span><strong>${d}</strong></span><span style="color:#c2410c;font-size:0.75rem">Might win — right circumstances</span></div>`;
+      }
+      return `<div style="display:flex;justify-content:space-between;margin-top:3px"><span><strong>${d}</strong></span><span style="color:#475569;font-size:0.75rem">Usually can't win by itself</span></div>`;
+    }).join('');
+
+    const breakdown = `<div style="margin-top:7px;border-top:1px solid rgba(255,255,255,0.1);padding-top:6px;font-size:0.82rem">${legend}${cardRows}</div>`;
+
+    if (s.mandatory_opening) {
+      const action = max >= 270
+        ? `🤖 A bot would: <strong>Bid 270!</strong><br>Predicted score your hand might win: ${max} — strong enough for the 1000-pt bonus.`
+        : `🤖 A bot would: <strong>Open at 170</strong><br>Predicted score your hand might win: ${max} (needs ~270 to go max). Open at 170 and don't go all the way to 270.`;
+      return action + breakdown;
+    }
+    const next = s.bid + 10;
+    const action = max >= next
+      ? `🤖 A bot would: <strong>Bid ${next}</strong><br>Predicted score your hand might win: ${max} — worth competing at ${next}. Winning lets you pick trump!`
+      : `🤖 A bot would: <strong>Pass</strong><br>Predicted score your hand might win: ${max}, next bid is ${next}. Not worth it — pass and earn pts if bidder fails.`;
+    return action + breakdown;
+  }
+
+  if (s.phase === 'set_trump' && s.is_my_trump_turn) {
+    const hand    = s.hand.map(h=>h.card);
+    const trump   = aiChooseTrump(hand);
+    const partners = aiChoosePartners(hand, trump);
+    const cnt     = hand.filter(c=>c[0]===trump).length;
+    const hasA    = hand.includes(trump+'a');
+    const hasK    = hand.includes(trump+'k');
+    const detail  = `${cnt} ${SUIT_NAME[trump]} cards${hasA?' including the Ace':hasK?' including the King':''}`;
+    const p1 = partners[0] ? cDisp(partners[0]) : '—';
+    const p2 = partners[1] ? cDisp(partners[1]) : '—';
+    return `🤖 A bot would: <strong>Trump: ${SUIT_SYM[trump]} ${SUIT_NAME[trump]}</strong>, Partners: <strong>${p1} &amp; ${p2}</strong><br>Why: You have ${detail} — your dominant suit. Partners target the highest trump/aces not in your hand.`;
+  }
+
+  if (s.phase === 'playing' && s.is_my_play_turn) {
+    const suggestion = suggestPlay();
+    if (suggestion) {
+      return `🤖 A bot would: play <strong>${cDisp(suggestion.card)}</strong><br>${suggestion.why}`;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Not the human's turn → explain last bot action for context
+  // ══════════════════════════════════════════════════════════════════════════
+
+  if (s.phase === 'scoring' && s.round_result) {
+    const rr = s.round_result;
+    const outcome = rr.bidder_won
+      ? `<strong>${rr.bidder_name}'s team won</strong> with ${rr.team_pts} pts (needed ${rr.bid})!`
+      : `<strong>${rr.bidder_name}'s team fell short</strong> — ${rr.team_pts} pts, needed ${rr.bid}.`;
+    return `Round over! ${outcome} Click <em>Play Next Round</em> to continue.`;
+  }
+
+  const log = s.log || [];
+  let last = '';
+  for (let i = log.length-1; i>=0; i--) { if (!log[i].startsWith('─')) { last=log[i]; break; } }
+  if (!last) return '';
+
+  if (/bids 270!$/.test(last)) {
+    const name = last.replace(' bids 270!', '');
+    return `<strong>${name}</strong> went all-in — bid 270! If their team wins they earn <strong>1000 pts</strong>. Extremely risky, but they must have a very strong hand.`;
+  }
+  if (last.includes('mandatory bid of 170')) {
+    return `<strong>${last.split(' opens')[0]}</strong> opened at 170 — mandatory start every round. Others can now bid higher.`;
+  }
+  const bidM = last.match(/^(.+) bids (\d+)\.$/);
+  if (bidM) {
+    const num = parseInt(bidM[2]);
+    const why = num<=180?`cautious — testing the waters.`:num<=220?`competitive — they have strong cards.`:`aggressive — a dominant hand.`;
+    return `<strong>${bidM[1]}</strong> bid <strong>${num}</strong> — ${why}`;
+  }
+  if (last.endsWith(' passes.')) {
+    return `<strong>${last.replace(' passes.','')}</strong> passed — hand not strong enough at the current price. They'll earn pts if the bidder fails.`;
+  }
+  if (last.includes('chose trump:')) {
+    const tM = last.match(/chose trump: (\w+)/), pM = last.match(/partners: (.+)\./);
+    return `The bidder chose <strong>${tM?tM[1]:'?'}</strong> as trump — their dominant suit. Secret partners: <strong>${pM?pM[1]:'?'}</strong>.`;
+  }
+  if (last.startsWith('  ')) {
+    const m = last.trim().match(/^(.+) plays (.+)$/);
+    if (m) {
+      const [,name,disp] = m;
+      const suit = SUIT_KEY[disp[0]], rank = disp.slice(1);
+      const isTrump = suit===s.trump, isB3 = disp==='♠3';
+      const pts = isB3?30:(HIGH_PTS[rank]||0);
+      const ledName = s.first_suit_name||SUIT_NAME[s.first_suit]||'';
+      const followed = suit===s.first_suit;
+      if (isB3) return `<strong>${name}</strong> played <strong>♠3</strong> — the most valuable card in the game (30 pts)!`;
+      if (!s.first_suit) return isTrump
+        ? `<strong>${name}</strong> led trump <strong>${disp}</strong> — forces everyone to play trump or lose the trick.`
+        : `<strong>${name}</strong> led <strong>${disp}</strong>${pts?` (${pts} pts)`:''} — leading their strong suit.`;
+      if (isTrump && !followed) return `<strong>${name}</strong> had no <strong>${ledName}</strong> and played trump <strong>${disp}</strong> — stealing this trick!`;
+      if (followed) return pts>=10
+        ? `<strong>${name}</strong> followed suit with <strong>${disp}</strong> (${pts} pts) — going for the win!`
+        : `<strong>${name}</strong> followed suit with <strong>${disp}</strong> — must follow, but can't win.`;
+      return `<strong>${name}</strong> discarded <strong>${disp}</strong> — no ${ledName}, saving trump for later.`;
+    }
+  }
+  const tM = last.match(/^Trick (\d+): (.+) wins with (.+) \((\d+) pts\)$/);
+  if (tM) {
+    const [,num,winner,card,pts] = tM;
+    return winner===s.my_name
+      ? `You won Trick ${num} with <strong>${card}</strong> — <strong>${pts} pts</strong> for your team! You lead next.`
+      : `<strong>${winner}</strong> won Trick ${num} with <strong>${card}</strong> (${pts} pts). They lead the next trick.`;
+  }
+  return '';
 }
 
 function escHtml(str) {

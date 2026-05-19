@@ -14,7 +14,13 @@
     <h1 class="game-title">🃏 Three of Spades</h1>
     <p class="subtitle">Kali Teeri – Family Card Game (up to 6 players)</p>
     <div class="rules-box">
-      <h3>How to Play</h3>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:0.5rem">
+        <h3 style="margin:0">How to Play</h3>
+        <span style="color:var(--text-muted);font-size:1rem">→</span>
+        <button id="btn-walkthrough" class="btn btn-walkthrough" style="padding:4px 12px;font-size:0.82rem">Walkthrough</button>
+        <span style="color:var(--text-muted);font-size:1rem">→</span>
+        <button id="btn-practice-direct" class="btn btn-primary" style="padding:4px 12px;font-size:0.82rem">Practice Match</button>
+      </div>
       <ul>
         <li>48 cards dealt (8 each), no 2s in the deck</li>
         <li>Empty seats are filled by <strong>bots</strong>.</li>
@@ -145,29 +151,158 @@
     <div class="rules-modal-inner">
       <button id="btn-close-rules" class="rules-close-btn">&times;</button>
       <h3>How to Play</h3>
-      <ul>
-        <li>48 cards dealt (8 each), no 2s in the deck.</li>
-        <li>Empty seats are filled by <strong>bots</strong>.</li>
-        <li><strong>Bidding:</strong> Seat 1 opens at 170. Going clockwise, each player bids higher (steps of 10, max 270) or passes. Last player standing is the <strong>bidder</strong>.</li>
-        <li><strong>Bid winner</strong> picks a <strong>trump suit</strong> and names 2 <strong>partner cards</strong> (e.g. ♥A, ♣K). Holders are secret allies — revealed only when that card is played.</li>
-        <li><strong>8 tricks</strong> played. Must follow suit if possible; trump beats all other suits.</li>
-        <li><strong>Points:</strong> Ace = 20 &nbsp;|&nbsp; K/Q/J/10 = 10 &nbsp;|&nbsp; ♠3 = 30 &nbsp;|&nbsp; others = 0</li>
-        <li><strong>Scoring:</strong> Bidder's team needs ≥ bid pts to win.<br>
-          Win → bidder earns bid × 2, each partner earns bid.<br>
-          Lose → each opponent earns bid, bidder loses bid.<br>
-          <strong>Bid 270 bonus:</strong> Win with a 270 bid → bidder earns <strong>1000 pts</strong>!
-        </li>
-      </ul>
-      <h3 style="margin-top:1rem">Playing a Trick</h3>
-      <ul>
-        <li>The player who wins a trick <strong>leads</strong> the next one by playing any card from their hand.</li>
-        <li>Going clockwise, each other player must <strong>follow suit</strong> — play a card of the same suit as the card led.</li>
-        <li>If you have <strong>no cards in that suit</strong>, you may play any card — including a trump.</li>
-        <li>A <strong>trump card</strong> beats any non-trump card, regardless of rank.</li>
-        <li>If multiple trumps are played, the <strong>highest trump</strong> wins. Otherwise, the <strong>highest card of the led suit</strong> wins.</li>
-        <li>Card ranks (low → high): <strong>3 4 5 6 7 8 9 10 J Q K A</strong> — except ♠3 which scores 30 pts but ranks as a normal 3.</li>
-        <li>The trick winner collects all cards played and scores their point values at the end of the round.</li>
-      </ul>
+
+      <div class="rm-section">
+        <h4 class="rm-section-title">The Basics</h4>
+        <ul class="rm-list">
+          <li>48 cards (no 2s), <strong>8 cards each</strong> for up to 6 players.</li>
+          <li>Empty seats are filled by <strong>bots</strong> automatically.</li>
+          <li>Every round has two secret teams: the <strong>bidder's side</strong> vs. everyone else.</li>
+        </ul>
+      </div>
+
+      <div class="rm-section">
+        <h4 class="rm-section-title">The Auction</h4>
+        <div class="wt-visual rm-visual">
+          <div class="wt-bid-demo">
+            <div class="wt-bid-row wt-bid-mandatory">
+              <span class="wt-bid-who">Seat 1</span>
+              <span class="wt-bid-val">170 <span class="wt-badge">(must open)</span></span>
+            </div>
+            <div class="wt-bid-row wt-bid-pass">
+              <span class="wt-bid-who">Seat 2</span><span class="wt-bid-val">Pass</span>
+            </div>
+            <div class="wt-bid-row">
+              <span class="wt-bid-who">Seat 3</span><span class="wt-bid-val">190</span>
+            </div>
+            <div class="wt-bid-row wt-bid-pass">
+              <span class="wt-bid-who">Seat 4</span><span class="wt-bid-val">Pass</span>
+            </div>
+            <div class="wt-bid-row wt-bid-pass">
+              <span class="wt-bid-who">Seat 1</span><span class="wt-bid-val">Pass</span>
+            </div>
+            <div class="wt-bid-row wt-bid-winner">
+              <span class="wt-bid-who">Seat 3 wins!</span>
+              <span class="wt-bid-val">Bidder at 190 ★</span>
+            </div>
+          </div>
+        </div>
+        <ul class="rm-list">
+          <li>Seat 1 <strong>must open at 170</strong>. Going clockwise, each player bids higher (steps of 10, max 270) or passes.</li>
+          <li>The last player standing wins the auction and becomes the <strong>Bidder</strong>.</li>
+          <li>Maximum bid is <strong>270</strong>. Win with a 270 bid → <strong>1000 bonus pts!</strong></li>
+        </ul>
+      </div>
+
+      <div class="rm-section">
+        <h4 class="rm-section-title">Trump &amp; Partners</h4>
+        <div class="wt-visual rm-visual">
+          <div class="wt-trump-demo">
+            <div class="wt-trump-suits">
+              <span class="wt-suit-chip wt-suit-selected">♠</span>
+              <span class="wt-suit-chip wt-suit-red">♥</span>
+              <span class="wt-suit-chip wt-suit-red">♦</span>
+              <span class="wt-suit-chip">♣</span>
+            </div>
+            <div class="wt-trump-label">Trump: <strong>♠ Spades</strong></div>
+            <div class="wt-partner-cards">
+              <div class="wt-partner-wrap">
+                <div class="wt-partner-label">Partner Card 1</div>
+                <div class="wt-demo-card wt-demo-red">♥<br>A</div>
+              </div>
+              <div class="wt-partner-wrap">
+                <div class="wt-partner-label">Partner Card 2</div>
+                <div class="wt-demo-card wt-demo-black">♣<br>K</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <ul class="rm-list">
+          <li>The winning bidder picks a <strong>trump suit</strong> — trump beats every other suit!</li>
+          <li>They name <strong>2 partner cards</strong> (e.g. ♥A, ♣K). Whoever holds them is secretly on the bidder's team.</li>
+          <li>Partners are <strong>revealed only when that card is played</strong>. Nobody knows who they are until then!</li>
+          <li>As a bidder, you can't select your own card as a partner card.</li>
+        </ul>
+      </div>
+
+      <div class="rm-section">
+        <h4 class="rm-section-title">Playing a Trick</h4>
+        <div class="wt-visual rm-visual">
+          <div class="wt-trick-demo">
+            <div class="wt-trick-example">
+              <div class="wt-trick-card-wrap">
+                <div class="trick-slot-label">Bot 1 (led ♥)</div>
+                <div class="trick-card red-suit" style="width:40px;height:55px;font-size:0.78rem">♥K</div>
+              </div>
+              <div class="wt-trick-card-wrap">
+                <div class="trick-slot-label">Bot 2 (trump!)</div>
+                <div class="trick-card black-suit winning" style="width:40px;height:55px;font-size:0.78rem">♠3</div>
+              </div>
+              <div class="wt-trick-card-wrap">
+                <div class="trick-slot-label">Bot 3</div>
+                <div class="trick-card red-suit" style="width:40px;height:55px;font-size:0.78rem">♥7</div>
+              </div>
+              <div class="wt-trick-card-wrap">
+                <div class="trick-slot-label">Bot 4</div>
+                <div class="trick-card red-suit" style="width:40px;height:55px;font-size:0.78rem">♥4</div>
+              </div>
+              <div class="wt-trick-card-wrap">
+                <div class="trick-slot-label">Bot 5</div>
+                <div class="trick-card black-suit" style="width:40px;height:55px;font-size:0.78rem">♣6</div>
+              </div>
+              <div class="wt-trick-card-wrap">
+                <div class="trick-slot-label">You</div>
+                <div class="trick-card red-suit" style="width:40px;height:55px;font-size:0.78rem">♥9</div>
+              </div>
+            </div>
+            <div class="wt-trick-note">♠ is trump → ♠3 beats ♥K! Bot 2 wins the trick.</div>
+          </div>
+        </div>
+        <ul class="rm-list">
+          <li>The bidder leads the first trick. The <strong>trick winner leads the next</strong>.</li>
+          <li>Going clockwise, each player must <strong>follow suit</strong> — play a card of the same suit as the card led.</li>
+          <li>If you have <strong>no cards in that suit</strong>, you may play any card — including a trump.</li>
+          <li>A <strong>trump card beats all non-trump</strong> cards, regardless of rank.</li>
+          <li>If multiple trumps are played, the <strong>highest trump wins</strong>. Otherwise, the <strong>highest card of the led suit</strong> wins.</li>
+          <li>Card ranks (low → high): <strong>3 4 5 6 7 8 9 10 J Q K A</strong> — ♠3 scores 30 pts but ranks as a normal 3.</li>
+          <li>The trick winner <strong>collects all cards</strong> and scores their point values at the end of the round.</li>
+        </ul>
+      </div>
+
+      <div class="rm-section">
+        <h4 class="rm-section-title">Scoring</h4>
+        <div class="wt-visual rm-visual">
+          <div class="wt-score-demo">
+            <div class="wt-score-row">
+              <div class="trick-card black-suit" style="width:38px;height:52px;font-size:0.72rem;border-color:#f44;box-shadow:0 0 6px rgba(255,68,68,0.5)">♠3</div>
+              <div class="wt-score-pts">= <strong style="color:var(--gold)">30 pts</strong> ★ the special card!</div>
+            </div>
+            <div class="wt-score-row">
+              <div class="trick-card red-suit" style="width:38px;height:52px;font-size:0.72rem">♥A</div>
+              <div class="wt-score-pts">= <strong>20 pts</strong></div>
+            </div>
+            <div class="wt-score-row">
+              <div style="display:flex;gap:3px">
+                <div class="trick-card black-suit" style="width:38px;height:52px;font-size:0.68rem">♣K</div>
+                <div class="trick-card red-suit" style="width:38px;height:52px;font-size:0.68rem">♦Q</div>
+                <div class="trick-card black-suit" style="width:38px;height:52px;font-size:0.68rem">♠J</div>
+                <div class="trick-card red-suit" style="width:38px;height:52px;font-size:0.68rem">♥10</div>
+              </div>
+              <div class="wt-score-pts">= <strong>10 pts</strong> each</div>
+            </div>
+            <div class="wt-score-row">
+              <div class="trick-card black-suit" style="width:38px;height:52px;font-size:0.72rem;opacity:0.4">♠7</div>
+              <div class="wt-score-pts">= <strong>0 pts</strong></div>
+            </div>
+          </div>
+        </div>
+        <ul class="rm-list">
+          <li>Bidder's team must collect <strong>≥ bid points</strong> across all 8 tricks to win.</li>
+          <li><strong>Win:</strong> Bidder earns bid ×2 pts; each partner earns bid pts.</li>
+          <li><strong>Lose:</strong> Each opponent earns bid pts; bidder loses bid pts.</li>
+          <li><strong>Bid 270 &amp; win</strong> → bidder earns a massive <strong>1000 pt bonus!</strong></li>
+        </ul>
+      </div>
     </div>
   </div>
 
@@ -320,6 +455,16 @@
     <div id="player-hand" class="player-hand"></div>
   </div>
 
+  <!-- Practice mode hint box (shown only during practice matches) -->
+  <div id="practice-hint-box" class="practice-hint-box hidden">
+    <div class="practice-hint-header">
+      <span class="practice-hint-icon">💡</span>
+      <span class="practice-hint-title">Practice Tip</span>
+      <button id="btn-dismiss-hint" class="practice-hint-dismiss">&times;</button>
+    </div>
+    <div id="practice-hint-text" class="practice-hint-text"></div>
+  </div>
+
 </div>
 
 <!-- ═══════════════════  HOST SEAT-OFFER MODAL  ═══════════════════ -->
@@ -342,6 +487,200 @@
     <div class="offer-modal-btns">
       <button id="btn-spec-accept" class="btn btn-primary">Join the game</button>
       <button id="btn-spec-decline" class="btn btn-secondary">Stay as spectator</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════  WALKTHROUGH MODAL  ═══════════════════ -->
+<div id="walkthrough-modal" class="wt-modal hidden">
+  <div class="wt-inner">
+    <button id="btn-close-wt" class="rules-close-btn">&times;</button>
+
+    <!-- Step 0: Overview -->
+    <div class="wt-step" id="wt-step-0">
+      <h2 class="wt-title">The Game</h2>
+      <div class="wt-visual">
+        <div class="wt-table">
+          <div class="wt-table-row">
+            <div class="wt-player-chip">Bot 1</div>
+            <div class="wt-player-chip">Bot 2</div>
+            <div class="wt-player-chip">Bot 3</div>
+          </div>
+          <div class="wt-table-center">— Three of Spades —</div>
+          <div class="wt-table-row">
+            <div class="wt-player-chip">Bot 4</div>
+            <div class="wt-player-chip">Bot 5</div>
+            <div class="wt-player-chip wt-you">You</div>
+          </div>
+        </div>
+      </div>
+      <ul class="wt-list">
+        <li>48 cards (no 2s), <strong>8 cards dealt</strong> to each of the 6 players.</li>
+        <li>Empty seats are filled by <strong>bots</strong> automatically.</li>
+        <li>Every round has two secret teams: the <strong>bidder's side</strong> vs. the rest.</li>
+        <li>Play 8 tricks and score as many points as you can for your team!</li>
+      </ul>
+    </div>
+
+    <!-- Step 1: Bidding -->
+    <div class="wt-step hidden" id="wt-step-1">
+      <h2 class="wt-title">The Auction</h2>
+      <div class="wt-visual">
+        <div class="wt-bid-demo">
+          <div class="wt-bid-row wt-bid-mandatory">
+            <span class="wt-bid-who">Seat 1</span>
+            <span class="wt-bid-val">170 <span class="wt-badge">(must open)</span></span>
+          </div>
+          <div class="wt-bid-row wt-bid-pass">
+            <span class="wt-bid-who">Seat 2</span>
+            <span class="wt-bid-val">Pass</span>
+          </div>
+          <div class="wt-bid-row">
+            <span class="wt-bid-who">Seat 3</span>
+            <span class="wt-bid-val">190</span>
+          </div>
+          <div class="wt-bid-row wt-bid-pass">
+            <span class="wt-bid-who">Seat 4</span>
+            <span class="wt-bid-val">Pass</span>
+          </div>
+          <div class="wt-bid-row wt-bid-pass">
+            <span class="wt-bid-who">Seat 1</span>
+            <span class="wt-bid-val">Pass</span>
+          </div>
+          <div class="wt-bid-row wt-bid-winner">
+            <span class="wt-bid-who">Seat 3 wins!</span>
+            <span class="wt-bid-val">Bidder at 190 ★</span>
+          </div>
+        </div>
+      </div>
+      <ul class="wt-list">
+        <li>Seat 1 <strong>must open at 170</strong>. Going clockwise, each player bids higher (steps of 10) or passes.</li>
+        <li>The last player standing wins the auction — they become the <strong>Bidder</strong>.</li>
+        <li>Maximum bid is <strong>270</strong>. Win with a 270 bid → <strong>1000 bonus pts!</strong></li>
+      </ul>
+    </div>
+
+    <!-- Step 2: Trump & Partners -->
+    <div class="wt-step hidden" id="wt-step-2">
+      <h2 class="wt-title">Trump &amp; Partners</h2>
+      <div class="wt-visual">
+        <div class="wt-trump-demo">
+          <div class="wt-trump-suits">
+            <span class="wt-suit-chip wt-suit-selected">♠</span>
+            <span class="wt-suit-chip wt-suit-red">♥</span>
+            <span class="wt-suit-chip wt-suit-red">♦</span>
+            <span class="wt-suit-chip">♣</span>
+          </div>
+          <div class="wt-trump-label">Trump: <strong>♠ Spades</strong></div>
+          <div class="wt-partner-cards">
+            <div class="wt-partner-wrap">
+              <div class="wt-partner-label">Partner Card 1</div>
+              <div class="wt-demo-card wt-demo-red">♥<br>A</div>
+            </div>
+            <div class="wt-partner-wrap">
+              <div class="wt-partner-label">Partner Card 2</div>
+              <div class="wt-demo-card wt-demo-black">♣<br>K</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ul class="wt-list">
+        <li>The winning bidder picks a <strong>trump suit</strong> — trump cards beat every other suit!</li>
+        <li>They also name <strong>2 partner cards</strong> (e.g. ♥A, ♣K). Whoever holds them is secretly on the bidder's team.</li>
+        <li>Partners stay <strong>hidden until that card is played</strong>. Nobody knows who they are!</li>
+        <li>As a bidder, you can't select your own card as a partner card.</li>
+      </ul>
+    </div>
+
+    <!-- Step 3: Playing Tricks -->
+    <div class="wt-step hidden" id="wt-step-3">
+      <h2 class="wt-title">Playing Tricks</h2>
+      <div class="wt-visual">
+        <div class="wt-trick-demo">
+          <div class="wt-trick-example">
+            <div class="wt-trick-card-wrap">
+              <div class="trick-slot-label">Bot 1 (led ♥)</div>
+              <div class="trick-card red-suit" style="width:42px;height:58px;font-size:0.82rem">♥K</div>
+            </div>
+            <div class="wt-trick-card-wrap">
+              <div class="trick-slot-label">Bot 2 (trump!)</div>
+              <div class="trick-card black-suit winning" style="width:42px;height:58px;font-size:0.82rem">♠3</div>
+            </div>
+            <div class="wt-trick-card-wrap">
+              <div class="trick-slot-label">Bot 3</div>
+              <div class="trick-card red-suit" style="width:42px;height:58px;font-size:0.82rem">♥7</div>
+            </div>
+            <div class="wt-trick-card-wrap">
+              <div class="trick-slot-label">Bot 4</div>
+              <div class="trick-card red-suit" style="width:42px;height:58px;font-size:0.82rem">♥4</div>
+            </div>
+            <div class="wt-trick-card-wrap">
+              <div class="trick-slot-label">Bot 5</div>
+              <div class="trick-card black-suit" style="width:42px;height:58px;font-size:0.82rem">♣6</div>
+            </div>
+            <div class="wt-trick-card-wrap">
+              <div class="trick-slot-label">You</div>
+              <div class="trick-card red-suit" style="width:42px;height:58px;font-size:0.82rem">♥9</div>
+            </div>
+          </div>
+          <div class="wt-trick-note">♠ is trump → ♠3 beats ♥K! Bot 2 wins the trick.</div>
+        </div>
+      </div>
+      <ul class="wt-list">
+        <li>The bidder leads the first trick. The <strong>trick winner leads the next</strong>.</li>
+        <li>You <strong>must follow suit</strong> if you have a card of the led suit.</li>
+        <li>No cards of that suit? Play <strong>any card</strong> — including a trump card!</li>
+        <li>A trump beats all non-trump cards, regardless of rank.</li>
+      </ul>
+    </div>
+
+    <!-- Step 4: Scoring -->
+    <div class="wt-step hidden" id="wt-step-4">
+      <h2 class="wt-title">Scoring</h2>
+      <div class="wt-visual">
+        <div class="wt-score-demo">
+          <div class="wt-score-row wt-score-special">
+            <div class="trick-card black-suit" style="width:38px;height:52px;font-size:0.72rem;border-color:#f44;box-shadow:0 0 6px rgba(255,68,68,0.5)">♠3</div>
+            <div class="wt-score-pts">= <strong style="color:var(--gold)">30 pts</strong> ★ the special card!</div>
+          </div>
+          <div class="wt-score-row">
+            <div class="trick-card red-suit" style="width:38px;height:52px;font-size:0.72rem">♥A</div>
+            <div class="wt-score-pts">= <strong>20 pts</strong></div>
+          </div>
+          <div class="wt-score-row">
+            <div style="display:flex;gap:3px">
+              <div class="trick-card black-suit" style="width:38px;height:52px;font-size:0.68rem">♣K</div>
+              <div class="trick-card red-suit" style="width:38px;height:52px;font-size:0.68rem">♦Q</div>
+              <div class="trick-card black-suit" style="width:38px;height:52px;font-size:0.68rem">♠J</div>
+              <div class="trick-card red-suit" style="width:38px;height:52px;font-size:0.68rem">♥10</div>
+            </div>
+            <div class="wt-score-pts">= <strong>10 pts</strong> each</div>
+          </div>
+          <div class="wt-score-row">
+            <div class="trick-card black-suit" style="width:38px;height:52px;font-size:0.72rem;opacity:0.4">♠7</div>
+            <div class="wt-score-pts">= <strong>0 pts</strong></div>
+          </div>
+        </div>
+      </div>
+      <ul class="wt-list">
+        <li>Bidder's team must collect <strong>≥ bid points</strong> across all 8 tricks to win.</li>
+        <li><strong>Win:</strong> Bidder earns bid ×2 pts; each partner earns bid pts.</li>
+        <li><strong>Lose:</strong> Each opponent earns bid pts; bidder loses bid pts.</li>
+        <li><strong>Bid 270 &amp; win</strong> → bidder earns a massive <strong>1000 pt bonus!</strong></li>
+      </ul>
+    </div>
+
+    <!-- Navigation -->
+    <div class="wt-nav">
+      <button id="btn-wt-prev" class="btn btn-secondary btn-sm">&#8592; Back</button>
+      <div class="wt-dots">
+        <span class="wt-dot active" data-step="0"></span>
+        <span class="wt-dot" data-step="1"></span>
+        <span class="wt-dot" data-step="2"></span>
+        <span class="wt-dot" data-step="3"></span>
+        <span class="wt-dot" data-step="4"></span>
+      </div>
+      <button id="btn-wt-next" class="btn btn-primary btn-sm">Next &#8594;</button>
     </div>
   </div>
 </div>
